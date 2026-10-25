@@ -28,8 +28,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Verificar Android SDK pré-instalado
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          test -d "${ANDROID_HOME:-/usr/local/lib/android/sdk}" || (echo 'Android SDK não encontrado no runner' && exit 1)
+          ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}/platforms" || true
       - name: Preparar versão web embarcada
         run: |
           mkdir -p dist
