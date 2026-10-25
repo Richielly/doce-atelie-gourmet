@@ -1,0 +1,54 @@
+name: APK Android de testes
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'index.html'
+      - 'package.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apk-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Preparar versão web embarcada
+        run: |
+          mkdir -p dist
+          cp index.html dist/index.html
+      - name: Instalar Capacitor
+        run: npm install --no-audit --no-fund
+      - name: Criar projeto Android
+        run: npx cap add android
+      - name: Sincronizar arquivos
+        run: npx cap sync android
+      - name: Compilar APK de testes
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: doce-atelie-apk-teste
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
