@@ -1,0 +1,31 @@
+name: Validar backend multi-loja
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validar sintaxe
+        run: python -m compileall -q backend/app
+      - name: Validar Docker Compose
+        working-directory: backend
+        env:
+          POSTGRES_DB: atelie
+          POSTGRES_USER: atelie
+          POSTGRES_PASSWORD: dummy_ci_password
+          BOOTSTRAP_TOKEN: dummy_ci_token_with_more_than_24_characters
+        run: docker compose -f compose.yaml config -q
+      - name: Construir imagem da API
+        run: docker build -t doce-atelie-api-teste ./backend
