@@ -1,0 +1,17 @@
+{
+  "name": "doce-atelie-mobile",
+  "version": "1.0.0-beta.1",
+  "private": true,
+  "description": "APK de testes do Doce Ateliê",
+  "scripts": {
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/core": "^7.4.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.0"
+  }
+}
