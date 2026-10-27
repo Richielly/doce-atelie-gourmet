@@ -1,6 +1,6 @@
 {
   "name": "doce-atelie-mobile",
-  "version": "1.0.0-beta.1",
+  "version": "1.1.0",
   "private": true,
   "description": "APK de testes do Doce Ateliê",
   "scripts": {
