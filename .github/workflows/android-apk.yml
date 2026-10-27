@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - 'index.html'
+      - 'api-client.js'
+      - 'loja-online.html'
+      - 'gestao-conectada.html'
       - 'package.json'
       - 'capacitor.config.json'
       - '.github/workflows/android-apk.yml'
@@ -37,6 +40,7 @@ jobs:
         run: |
           mkdir -p dist
           cp index.html dist/index.html
+          cp api-client.js loja-online.html gestao-conectada.html dist/
       - name: Instalar Capacitor
         run: npm install --no-audit --no-fund
       - name: Criar projeto Android
