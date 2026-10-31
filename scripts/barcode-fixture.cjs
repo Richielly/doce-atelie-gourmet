@@ -1,0 +1,11 @@
+/* Independent EAN-13 fixture, with rotation, placement and exposure variations. */
+const zlib=require('node:zlib');
+function image({angle=0,scale=3,frameWidth,frameHeight,x=0,y=0,dark=0,light=255}={}){
+ const code='5901234123457',left=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+ const parity=['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'],invert=s=>s.replace(/[01]/g,c=>c==='0'?'1':'0');let bars='101';for(let n=1;n<7;n++)bars+=parity[code[0]][n-1]==='L'?left[code[n]]:invert(left[code[n]]).split('').reverse().join('');bars+='01010';for(let n=7;n<13;n++)bars+=invert(left[code[n]]);bars+='101';
+ const bw=(bars.length+24)*scale,bh=120,rad=angle*Math.PI/180,co=Math.cos(rad),si=Math.sin(rad),rw=Math.ceil(Math.abs(bw*co)+Math.abs(bh*si)),rh=Math.ceil(Math.abs(bw*si)+Math.abs(bh*co)),width=frameWidth||rw+20,height=frameHeight||rh+20,data=new Uint8ClampedArray(width*height*4);
+ for(let yy=0;yy<height;yy++)for(let xx=0;xx<width;xx++){const dx=xx-x-10-rw/2,dy=yy-y-10-rh/2,sx=Math.floor(co*dx+si*dy+bw/2),sy=Math.floor(-si*dx+co*dy+bh/2),bar=Math.floor(sx/scale)-12,black=sx>=0&&sx<bw&&sy>=8&&sy<bh-8&&bar>=0&&bar<bars.length&&bars[bar]==='1',v=black?dark:light,p=(yy*width+xx)*4;data[p]=data[p+1]=data[p+2]=v;data[p+3]=255;}
+ return {width,height,data};
+}
+function png(input){const {width,height,data}=input,raw=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++){raw[y*(width*4+1)]=0;Buffer.from(data.buffer,data.byteOffset+y*width*4,width*4).copy(raw,y*(width*4+1)+1);}const chunk=(name,data)=>{const body=Buffer.concat([Buffer.from(name),data]);let crc=0xffffffff;for(const b of body){crc^=b;for(let k=0;k<8;k++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}const length=Buffer.alloc(4),check=Buffer.alloc(4);length.writeUInt32BE(data.length);check.writeUInt32BE((crc^0xffffffff)>>>0);return Buffer.concat([length,body,check]);};const header=Buffer.alloc(13);header.writeUInt32BE(width);header.writeUInt32BE(height,4);header[8]=8;header[9]=6;return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),chunk('IDAT',zlib.deflateSync(raw)),chunk('IEND',Buffer.alloc(0))]);}
+module.exports={image,png};

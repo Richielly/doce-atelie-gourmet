@@ -1,1 +1,1 @@
-window.DOCE_BUILD={version:'1.1.0',code:1000};
+window.DOCE_BUILD={"version":"2.6.1","code":3601,"apiContract":"v1"};

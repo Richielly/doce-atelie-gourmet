@@ -1,11 +1,12 @@
 {
   "appId": "com.doceatelie.gourmet",
-  "appName": "Doce Ateliê",
+  "appName": "Elume Shop",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
   },
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "disable"
   }
 }

@@ -1,0 +1,19 @@
+/* Native WebView consumes Android insets; env() covers browser/PWA safe areas. */
+:root{--elume-safe-top:env(safe-area-inset-top,0px);--elume-safe-bottom:env(safe-area-inset-bottom,0px)}
+header{border-top:var(--elume-safe-top) solid transparent}
+.overlay{padding:max(15px,calc(var(--elume-safe-top) + 12px)) max(15px,env(safe-area-inset-right,0px)) max(15px,calc(var(--elume-safe-bottom) + 12px)) max(15px,env(safe-area-inset-left,0px));box-sizing:border-box}
+.modal,dialog{max-height:calc(100dvh - var(--elume-safe-top) - var(--elume-safe-bottom) - 24px)}
+body:has(nav.bottom) main{padding-bottom:calc(100px + var(--elume-safe-bottom))}
+body:has(#salon-nav){padding-bottom:calc(100px + var(--elume-safe-bottom))}
+.modal.recipe-editor{display:flex;flex-direction:column;overflow:hidden;padding:0;height:min(88dvh,900px);max-width:530px}
+.recipe-editor-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line,#eadfe5);flex-shrink:0}
+.recipe-editor-head h2{margin:0;font-size:23px}
+.recipe-editor-head button{display:flex;align-items:center;gap:6px;min-height:44px;flex-shrink:0}
+.recipe-editor form{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+.recipe-editor-fields{display:grid;gap:12px;overflow-y:auto;min-height:0;flex:1;padding:18px;overscroll-behavior:contain}
+.recipe-exit-dialog{width:min(390px,calc(100% - 28px));border:1px solid var(--line,#eadfe5);border-radius:20px;padding:22px;color:var(--ink,#342a30);background:var(--surface,#fff)}
+.recipe-exit-dialog::backdrop{background:#22172599}
+.recipe-exit-dialog h2{margin-top:0}.recipe-exit-dialog p{line-height:1.5}.recipe-exit-dialog button{min-height:46px}
+.recipe-editor-tools{display:flex;gap:8px;flex-shrink:0}
+.recipe-editor-head .recipe-icon-action{width:44px;height:44px;min-width:44px;min-height:44px;padding:10px;justify-content:center}
+.recipe-icon-action svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}

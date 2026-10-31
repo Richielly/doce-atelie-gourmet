@@ -4,14 +4,29 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - '*.html'
+      - '*.js'
+      - '*.css'
+      - 'assets.json'
       - 'index.html'
       - 'admin-sync.js'
       - 'version.js'
       - 'api-client.js'
+      - 'shop-registry.js'
+      - 'shop-picker.js'
+      - 'minhas-lojas.html'
+      - 'publicar-produtos.html'
+      - 'product-publish.js'
+      - 'publish-page.js'
       - 'loja-online.html'
       - 'gestao-conectada.html'
       - 'package.json'
+      - 'package-lock.json'
+      - 'release.json'
+      - 'scripts/**'
       - 'capacitor.config.json'
+      - 'android-build.json'
+      - 'android-src/**'
       - '.github/workflows/android-apk.yml'
 
 permissions:
@@ -37,23 +52,24 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Preparar arquivos web e versão crescente
+      - name: Instalar dependências e verificar aplicação
         run: |
-          mkdir -p dist
-          cp index.html api-client.js loja-online.html gestao-conectada.html admin-sync.js dist/
+          npm ci --no-audit --no-fund
+          npm run check
+          npm test
+      - name: Preparar arquivos web e versão
+        run: |
+          node scripts/build.cjs
           node <<'JS'
           const fs=require('fs');
-          const code=1000+Number(process.env.GITHUB_RUN_NUMBER);
-          const version='1.1.'+process.env.GITHUB_RUN_NUMBER;
-          fs.writeFileSync('dist/version.js','window.DOCE_BUILD='+JSON.stringify({version,code})+';');
+          const {version,code}=JSON.parse(fs.readFileSync('release.json','utf8'));
           fs.writeFileSync('build-version.json',JSON.stringify({version,code,commit:process.env.GITHUB_SHA}));
           JS
-      - name: Instalar Capacitor
-        run: npm install --no-audit --no-fund
+      - name: Instalar plataforma Android 36
+        run: sdkmanager "platforms;android-36"
       - name: Criar e sincronizar projeto Android
         run: |
-          npx cap add android
-          npx cap sync android
+          node scripts/android.cjs
           node <<'JS'
           const fs=require('fs');
           const {code,version}=JSON.parse(fs.readFileSync('build-version.json'));
@@ -92,7 +108,7 @@ jobs:
       - name: Disponibilizar APK versionado
         uses: actions/upload-artifact@v4
         with:
-          name: doce-atelie-1.1.${{ github.run_number }}
+          name: doce-atelie-${{ github.run_number }}
           path: apk-output/
           if-no-files-found: error
           retention-days: 30

@@ -1,0 +1,11 @@
+/* Platform identity only; never replaces a merchant's theme or logo. */
+:root{--elume-purple:#7137c6;--elume-coral:#f58573;--elume-ink:#3d1858;--elume-cream:#fff9f1}
+.elume-platform-signature{display:flex;align-items:center;justify-content:center;padding:12px 18px;background:var(--elume-cream);border:1px solid #7137c614;border-radius:20px;margin-bottom:20px}
+.elume-platform-signature img{display:block;width:220px;max-width:100%;height:auto}
+.elume-brand .elume-wordmark{display:block;max-width:100%;height:auto}
+.elume-brand small{font-family:system-ui,sans-serif;line-height:1.5}
+.elume-area-context{position:sticky;z-index:18;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px 14px;min-height:42px;padding:8px 16px;background:#f0e7fc;color:#4c2282;border-bottom:1px solid #7137c629;font:12px system-ui,sans-serif;text-align:center}
+.elume-area-context strong{font-weight:800;letter-spacing:.3px;text-transform:uppercase}
+.elume-area-context span{max-width:100%;overflow-wrap:anywhere}
+.elume-area-context[data-role=professional]{background:#fff0e9;color:#873c30;border-color:#f5857340}
+.elume-area-context[data-role=customer]{background:#fff9f1;color:#574a63;border-color:#e8ddd1}

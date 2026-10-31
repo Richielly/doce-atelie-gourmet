@@ -1,0 +1,6 @@
+{
+  "compileSdk": 36,
+  "targetSdk": 36,
+  "androidGradlePlugin": "8.10.1",
+  "gradle": "8.11.1"
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+android/
+.env
+*.keystore
+*.jks
+*.p12
+*.log
+releases/
+.tools/
