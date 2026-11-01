@@ -2,7 +2,7 @@
   "name": "doce-atelie-mobile",
   "version": "1.1.0",
   "private": true,
-  "description": "Elume Shop â€” lojas, serviÃ§os e conexÃµes",
+  "description": "Elume Shop — lojas, serviços e conexões",
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "check": "node scripts/check.cjs",

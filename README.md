@@ -19,8 +19,8 @@ expostas no computador. No celular, use o endereço HTTPS público contido no QR
 `assets.json` define os arquivos ativos empacotados. `app-entry.js` seleciona vitrine,
 cliente ou administração. `customer-runtime.js` integra a interface existente ao servidor;
 `admin-runtime.js` mantém rascunhos no IndexedDB e publica somente por Enviar alterações.
-Os arquivos antigos `admin-sync.js`, `publish-page.js` e `product-publish.js` são históricos
-e não são empacotados. O cliente nunca usa dados do workspace administrativo.
+Os antigos `admin-sync.js`, `publish-page.js` e `product-publish.js` foram removidos; o
+build ainda os apaga de `dist/` gerados antes. O cliente nunca usa dados do workspace administrativo.
 
 ## Administração
 
