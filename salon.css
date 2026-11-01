@@ -32,3 +32,5 @@
 @media(max-width:380px){.calendar-week,.calendar-days{gap:3px}.calendar-day{min-height:70px}.calendar-day span{font-size:10px}.calendar-panel{padding:12px}}
 
 .headright{gap:8px;flex-shrink:0}.salon-showcase{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;flex-shrink:0;background:white;border:1px solid var(--line);border-radius:16px;color:var(--p);text-decoration:none}.salon-showcase[hidden]{display:none!important}.salon-showcase svg{width:25px;height:25px}
+
+.chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}.chart-wide{grid-column:1/-1}.chart-panel h2{font-size:17px;margin:0 0 14px}.chart-panel h3{font-size:13px;margin:16px 0 8px;color:var(--muted)}.chart-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.chart-head h2{margin:0}.chart-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}.chart-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px}@media(max-width:760px){.chart-grid,.chart-split{grid-template-columns:1fr}.chart-tiles{grid-template-columns:1fr 1fr}}
