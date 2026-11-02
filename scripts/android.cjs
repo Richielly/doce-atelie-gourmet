@@ -35,7 +35,8 @@ fs.writeFileSync(gradlePath, gradle.replace(/versionCode\s+\d+/, 'versionCode ' 
 const nativeBuild=JSON.parse(fs.readFileSync('android-build.json','utf8'));
 const variablesPath='android/variables.gradle';
 let variables=fs.readFileSync(variablesPath,'utf8');
-for(const [field,value] of [['compileSdkVersion',nativeBuild.compileSdk],['targetSdkVersion',nativeBuild.targetSdk]]){
+// Google Play requires minSdk 24 or newer for new uploads (Play automatic protection).
+for(const [field,value] of [['minSdkVersion',nativeBuild.minSdk],['compileSdkVersion',nativeBuild.compileSdk],['targetSdkVersion',nativeBuild.targetSdk]]){
  const pattern=new RegExp(field+'\\s*=\\s*\\d+');
  if(!pattern.test(variables))throw Error('Configuração Android ausente: '+field);
  variables=variables.replace(pattern,field+' = '+value);

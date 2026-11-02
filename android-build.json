@@ -1,4 +1,5 @@
 {
+  "minSdk": 24,
   "compileSdk": 36,
   "targetSdk": 36,
   "androidGradlePlugin": "8.10.1",
