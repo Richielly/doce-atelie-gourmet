@@ -220,7 +220,7 @@
  }
  function onlineCard(o){
   const d=o.details||{},current=labels[o.status]||o.status,open=!['Entregue','Concluído','Cancelado'].includes(current);
-  return '<article class="panel order-management-card"><div class="order-management-head"><div><strong>#'+esc(o.id.slice(0,6))+' · '+esc(d.customer?.name||'Cliente')+'</strong><small>'+esc(d.method||'Retirada')+(d.scheduledDate?' · '+esc(new Date(d.scheduledDate+'T12:00:00').toLocaleDateString('pt-BR')):'')+'</small></div><b>'+money(o.total_cents/100)+'</b></div><p>'+o.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')+'</p>'+(current==='Cancelado'?'<p class="order-cancelled">Pedido cancelado</p>':onlineFlow(o))+'<div class="order-management-foot"><span>'+esc(current)+(d.customerOnWay?' · Cliente a caminho':'')+'</span><span class="order-actions"><button class="btn" onclick="onlineOrderDetails('+esc(JSON.stringify(o.id))+')">Detalhes</button>'+(open?'<button class="btn danger" onclick="cancelOnlineOrder('+esc(JSON.stringify(o.id))+')">Cancelar pedido</button>':'')+'</span></div></article>';
+  return '<article class="panel order-management-card"><div class="order-management-head"><div><strong>#'+esc(o.id.slice(0,6))+' · '+esc(d.customer?.name||'Cliente')+'</strong><small>'+esc(d.method||'Retirada')+(d.scheduledDate?' · '+esc(new Date(d.scheduledDate+'T12:00:00').toLocaleDateString('pt-BR')):'')+'</small></div><b>'+money(o.total_cents/100)+'</b></div><p>'+o.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')+'</p>'+(current==='Cancelado'?'<p class="order-cancelled">Pedido cancelado</p>':onlineFlow(o))+'<div class="order-management-foot"><span>'+esc(current)+(d.customerOnWay?' · Cliente a caminho':'')+'</span><span class="order-actions"><button class="btn" onclick="onlineOrderDetails('+esc(JSON.stringify(o.id))+')">Detalhes</button>'+(current!=='Cancelado'?'<button class="btn" onclick="attachOrderPhoto('+esc(JSON.stringify(o.id))+')">📷 '+(d.readyPhoto?'Trocar foto':'Foto do pedido')+'</button>':'')+(d.readyPhoto?'<button class="btn" onclick="viewOrderPhoto('+esc(JSON.stringify(o.id))+')">Ver foto</button>':'')+''+(open?'<button class="btn danger" onclick="cancelOnlineOrder('+esc(JSON.stringify(o.id))+')">Cancelar pedido</button>':'')+'</span></div></article>';
  }
  const originalOrders=adminOrders;adminOrders=function(){
   const open=onlineOrders.filter(o=>!['entregue','cancelado'].includes(o.status));
@@ -245,6 +245,30 @@
  };
  window.setOnlineOrderStatus=window.stageOrderStatus;
  window.onlineOrderDetails=function(id){const order=onlineOrders.find(o=>o.id===id);if(!order)return;const d=order.details||{};showModal('<h2>Pedido #'+esc(id.slice(0,8))+'</h2><p><b>'+esc(d.customer?.name||'Cliente')+'</b></p><p>WhatsApp: '+esc(d.customer?.phone||'Não informado')+'</p><p>'+esc(d.method||'Retirada')+' · '+esc(d.address||'Retirada na loja')+'</p><p>Observações: '+esc(d.notes||'Nenhuma')+'</p><p>Pagamento: '+esc(d.payment||'A combinar')+' · '+esc(d.paymentStatus||'Não confirmado')+'</p>'+(d.scheduledDate?'<p>Agendado: '+esc(d.scheduledDate)+'</p>':'')+(d.voucherCode?'<p>Voucher: '+esc(d.voucherCode)+'</p>':'')+'<p>'+money(order.total_cents/100)+'</p><button class="btn full" onclick="closeModal()">Fechar</button>');};
+ // The photo goes to the customer at once (operational), after the shop confirms it.
+ window.attachOrderPhoto=function(id){
+  const order=onlineOrders.find(o=>o.id===id);if(!order||sync.running)return;
+  const input=document.createElement('input');input.type='file';input.accept='image/jpeg,image/png,image/webp';input.setAttribute('capture','environment');
+  input.onchange=async()=>{
+   try{
+    const file=input.files?.[0];if(!file)return;
+    const image=await DoceImages.prepare(file,{maxSide:1280,maxBytes:450000});
+    if(!await confirmAction('Enviar foto ao cliente?',['Pedido #'+id.slice(0,6)+' · '+(order.details?.customer?.name||'Cliente'),'O cliente recebe um aviso e vê a foto no acompanhamento do pedido.'+(order.details?.readyPhoto?' A foto anterior será substituída.':'')],'Enviar foto'))return;
+    await DoceLoading.run(()=>request(prefix()+'/orders/'+encodeURIComponent(id)+'/photo','POST',{photo:image.src}));
+    await live();render();notify('Foto enviada. O cliente já pode ver no pedido.');
+   }catch(e){notify(e.message,'error');}
+  };
+  input.click();
+ };
+ window.viewOrderPhoto=async function(id){
+  try{
+   if(Date.now()>=sync.expires)await authenticate();
+   const response=await fetch(sync.store.api+prefix()+'/orders/'+encodeURIComponent(id)+'/photo',{cache:'no-store',headers:{Authorization:'Bearer '+sync.token}});
+   if(!response.ok)throw Error('Foto indisponível.');
+   const url=URL.createObjectURL(await response.blob());
+   showModal('<h2>Foto do pedido #'+esc(id.slice(0,6))+'</h2><figure class="order-photo"><img src="'+url+'" alt="Foto enviada ao cliente"></figure><button class="btn full" onclick="closeModal()">Fechar</button>');
+  }catch(e){notify(e.message,'error');}
+ };
  window.refreshOnlineOrders=async()=>{try{await live();render();}catch(e){notify(e.message,'error');}};
  const originalBooking=adminBooking;adminBooking=function(){return '<div class="panel"><h2>Orçamentos recebidos</h2><button class="btn" onclick="refreshOnlineOrders()">Atualizar solicitações</button>'+activity.quotes.map(q=>{const pending=sync.operations.find(op=>op.kind==='quote'&&op.id===q.id);return '<article class="panel" data-quote-id="'+esc(q.id)+'"><b>'+esc(q.customer?.name||'Cliente')+' · '+esc(q.status)+'</b><p>'+esc(q.date)+' · '+q.items.map(i=>i.qty+' × '+esc(i.name)).join(', ')+'</p><p>'+money(q.subtotal+q.fee)+'</p>'+(pending?'<p>Alteração antiga ainda no rascunho deste aparelho. Use Enviar alterações para concluí-la.</p>':'')+(['Solicitado','Aguardando cliente'].includes(q.status)?'<form class="stack" onsubmit="stageQuote(event,'+esc(JSON.stringify(q.id))+')"><label class="field">Data<input name="date" type="date" required value="'+esc(q.date)+'"></label><label class="field">Produtos (R$)<input name="subtotal" type="number" min="0" step="0.01" required value="'+q.subtotal+'"></label><label class="field">Entrega (R$)<input name="fee" type="number" min="0" step="0.01" required value="'+q.fee+'"></label><button class="btn primary">Enviar proposta</button><button type="button" class="btn" onclick="rejectRemoteQuote('+esc(JSON.stringify(q.id))+')">Recusar orçamento</button></form>':'')+'</article>';}).join('')+'</div>'+originalBooking();};
  window.stageQuote=function(event,id){

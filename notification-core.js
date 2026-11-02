@@ -2,7 +2,7 @@
 (function(root){
  'use strict';
  const categories={orders:'Pedidos',quotes:'Orçamentos',benefits:'Fidelidade e vouchers',inventory:'Estoque e validade',on_way:'Cliente a caminho',drafts:'Alterações não enviadas',salon:'Agenda, encaixes e retornos'};
- const pages={customer:{orders:'orders',quotes:'quotes',loyalty:'loyalty',salon:'salon'},admin:{orders:'deliveries',quotes:'booking',stock:'stock',pantry:'pantry',drafts:'dashboard',salon:'salon'},professional:{salon:'salon'}};
+ const pages={customer:{orders:'orders',quotes:'quotes',loyalty:'loyalty',salon:'salon'},admin:{orders:'deliveries',quotes:'booking',stock:'stock',pantry:'pantry',drafts:'dashboard',dashboard:'dashboard',salon:'salon'},professional:{salon:'salon'}};
  function key(store,role){return JSON.stringify([store.api.replace(/\/+$/,''),store.id,role]);}
  function route(store,role,target={},base='http://localhost/index.html'){
   const api=new URL(store.api);if(api.username||api.password||api.search||api.hash||api.pathname!=='/'||!(api.protocol==='https:'||api.protocol==='http:'&&api.hostname==='localhost'))throw Error('Servidor da notificação inválido.');
