@@ -46,7 +46,8 @@
   });
  }
  function professionalSummary(operation){
-  const b=operation.body||{},p=professionals()[0],lines=[store.name,'Profissional: '+(p?.name||''),operation.label||'Confirmar ação'];
+  const b=operation.body||{},p=professionals()[0],lines=[store.name,role==='admin'?'Dono do salão':'Profissional: '+(p?.name||''),operation.label||'Confirmar ação'];
+  if(role==='admin'&&b.professional_id){const staff=(config?.data?.professionals||[]).find(x=>x.id===b.professional_id);if(staff)lines.push('Profissional: '+staff.name);}
   if(operation.kind==='schedule'){
    const key=w=>Date.parse(w.start)+':'+Date.parse(w.end);
    for(const [kind,label] of [['windows','Atendimento'],['blocks','Pausa/bloqueio']]){
@@ -72,31 +73,33 @@
   return lines.join('\n\n');
  }
  async function executeProfessional(operation){
-  if(role!=='professional'||working)return false;
+  if(!['professional','admin'].includes(role)||working)return false;
   professionalRefreshFailed=false;
   professionalSubmit||=window.ElumeProfessionalSubmit.create({
    confirm:confirmProfessional,
    begin:()=>{working=true;syncBanner();const end=DoceLoading.begin();return()=>{working=false;end();syncBanner();};},
-   track:op=>{if(op.kind==='schedule')draft.schedule=op.body;else if(!draft.commands.includes(op))draft.commands.push(op);saveDraft();},
-   request:op=>{if(!op.path.startsWith(salon()+'/'))throw Error('Ação não pertence à sua área profissional.');return raw(op.path,op.method,op.body);},
-   commit:op=>{if(op.kind==='schedule')draft.schedule=null;else draft.commands=draft.commands.filter(c=>c!==op);saveDraft();},
+   track:op=>{if(role==='admin')return;if(op.kind==='schedule')draft.schedule=op.body;else if(!draft.commands.includes(op))draft.commands.push(op);saveDraft();},
+   request:op=>{if(!op.path.startsWith(salon()+'/'))throw Error(role==='admin'?'Ação não pertence a este salão.':'Ação não pertence à sua área profissional.');return raw(op.path,op.method,op.body);},
+   commit:(op,result)=>{if(role==='admin'){if(result?.code)setTimeout(()=>invitationModal(result.code));return;}if(op.kind==='schedule')draft.schedule=null;else draft.commands=draft.commands.filter(c=>c!==op);saveDraft();},
    refresh:()=>load(),
    onRefreshError:()=>{professionalRefreshFailed=true;message('Ação salva no salão. Não foi possível atualizar a tela; toque em Atualizar.',true);}
   });
-  try{const saved=await professionalSubmit.execute(operation,professionalSummary(operation));if(saved&&!professionalRefreshFailed)message('Ação salva no salão.');return saved;}catch(error){if($('salon-dialog').open)$('salon-dialog').close();page='account';render();throw Error(error.message+' A ação pode ser conferida em Minha área antes de tentar novamente.');}
+  try{const saved=await professionalSubmit.execute(operation,professionalSummary(operation));if(saved&&!professionalRefreshFailed)message(role==='admin'?'Ação enviada. Clientes e equipe já veem a atualização.':'Ação salva no salão.');return saved;}catch(error){if(role==='admin')throw Error(error.message+' Nada foi enviado; confira e tente de novo.');if($('salon-dialog').open)$('salon-dialog').close();page='account';render();throw Error(error.message+' A ação pode ser conferida em Minha área antes de tentar novamente.');}
  }
  function professionalRecoveryPanel(){
   return `<div class="elume-platform-signature"><img src="elume-logo-horizontal.svg" width="220" height="68" alt="Elume Shop"></div><section class="panel stack"><h2>Confirmação por ação</h2><p>Confira o resumo e confirme para salvar diretamente no salão. Não é necessário sincronizar depois.</p>${draft.schedule||draft.commands.length?'<div class="note">Há ações anteriores ou sem confirmação de salvamento. Nada é reenviado automaticamente. Confira o estado atual antes de tentar novamente.</div>':''}${draft.schedule?'<article><h3>Jornada e pausas pendentes</h3><pre style="white-space:pre-wrap;font:inherit">'+esc(professionalSummary({kind:'schedule',body:draft.schedule,label:'Jornada e pausas'}))+'</pre>'+button('Revisar e confirmar','retry-professional','schedule')+'</article>':''}${draft.commands.map((c,i)=>'<article><h3>'+esc(c.label||'Ação pendente')+'</h3><pre style="white-space:pre-wrap;font:inherit">'+esc(professionalSummary(c))+'</pre>'+button('Revisar e confirmar','retry-professional',String(i))+'</article>').join('')}<div class="actions">${button('Atualizar informações','refresh')}${pending()?button('Descartar ações pendentes','discard')+button('Exportar ações pendentes','export'):''}</div></section>`;
  }
  async function stage(path,method,body,label){
   if(method==='POST'&&(path.endsWith('/gaps')||path.endsWith('/proposals')||path.endsWith('/absences')))body={...body,request_id:body.request_id||crypto.randomUUID()};
-  if(role==='professional')return executeProfessional({path,method,body,label});
+  // Operation (agenda, encaixes, propostas, convites, acessos) is confirmed and sent at once by the
+  // owner too; only salon configuration waits in the draft for Enviar alterações.
+  if(role==='professional'||role==='admin')return executeProfessional({path,method,body,label});
   const appointmentPath=path.match(/^(.*\/appointments\/[^/]+)\/(command|estimate)$/)?.[1];
   if(appointmentPath)draft.commands=draft.commands.filter(c=>!c.path.startsWith(appointmentPath+'/'));
   draft.commands.push({path,method,body,label});saveDraft();message('Preparado neste aparelho. Toque em Enviar alterações para persistir.');render();return true;
  }
  function pending(){return !!draft.config||!!draft.schedule||draft.commands.length>0;}
- function syncText(){return working?'Enviando alterações…':pending()?'Há alterações salvas neste aparelho, ainda não enviadas.':'Sem alterações pendentes.';}
+ function syncText(){return working?'Enviando alterações…':pending()?'Há configurações salvas neste aparelho, ainda não enviadas.':'Configurações publicadas. Agenda, encaixes e propostas são enviados na hora, após sua confirmação.';}
  function syncBanner(){
   window.DoceAdminSync?.mount({dirty:role==='admin'&&pending(),running:working,onSend:send,onError:e=>message(e.message,true)});
   const status=$('salonSyncStatus');if(status)status.textContent=syncText();
@@ -104,12 +107,13 @@
  }
  function connectionPanel(){if(role==='professional')return professionalRecoveryPanel();return `<div class="elume-platform-signature"><img src="elume-logo-horizontal.svg" width="220" height="68" alt="Elume Shop"></div><section class="panel stack"><h2>Sincronização e rascunho</h2><p id="salonSyncStatus" role="status">${esc(syncText())}</p><button id="salonSettingsSend" class="btn primary" data-action="send" ${working||!pending()?'disabled':''}>Enviar alterações</button><button class="btn" data-action="refresh">Atualizar do servidor</button><button class="btn" data-action="export">Exportar rascunho</button>${pending()?'<button class="btn" data-action="discard">Descartar rascunho</button>':''}</section>`;}
 
+ function invitationModal(code){modal(`<h2>Convite do profissional</h2><p>Válido por 24 horas e para um único uso. Compartilhe por um canal privado.</p><label class="field">Código<input readonly value="${esc(code)}"></label><p class="muted">O profissional abre este link e informa o código:</p><input readonly value="${esc(link('professional'))}"><div class="actions"><button class="btn" data-action="copy-invitation" data-code="${esc(code)}">Copiar convite</button></div>`);}
  async function send(){
   if(role!=='admin'||working)return;working=true;syncBanner();
   try{await DoceLoading.run(async()=>{
    if(draft.config){config=await raw(salon()+'/config','PUT',{...draft.config,revision:draft.configRevision});draft.config=null;saveDraft();}
    while(draft.commands.length){const c=draft.commands[0],result=await raw(c.path,c.method,c.body);draft.commands.shift();saveDraft();
-    if(result.code)modal(`<h2>Convite do profissional</h2><p>Válido por 24 horas e para um único uso. Compartilhe por um canal privado.</p><label class="field">Código<input readonly value="${esc(result.code)}"></label><p class="muted">O profissional abre este link e informa o código:</p><input readonly value="${esc(link('professional'))}"><div class="actions"><button class="btn" data-action="copy-invitation" data-code="${esc(result.code)}">Copiar convite</button></div>`);
+    if(result.code)invitationModal(result.code);
    }
   });await load();message('Alterações enviadas para o salão.');}catch(e){message(e.message+' As ações ainda não enviadas continuam no rascunho.',true);}finally{working=false;syncBanner();}
  }

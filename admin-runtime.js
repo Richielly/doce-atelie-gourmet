@@ -1,14 +1,30 @@
-/* The only persistence trigger for administration is Enviar alterações. */
+/* Configuration waits in the draft for Enviar alterações. Operation (order status, quotes, stock,
+   pantry, production and order calendar) is confirmed or saved by the merchant and sent at once.
+   Nothing pending is sent by opening, reloading or reconnecting. */
 (()=>{
  'use strict';
  if(window.DOCE_MODE!=='admin')return;
  const fields=['products','orders','settings','nextId','pantry','pantryEntries','pantryLots','pantryMovements','recipes','production','allocations','loyalty','quotes','booking','branding','loyaltyAccounts','loyaltyVouchers'];
+ // Fields the customer depends on in real time, or that record what already happened.
+ const OPERATIONAL=['orders','pantry','pantryEntries','pantryLots','pantryMovements','production','allocations','booking','loyaltyAccounts','loyaltyVouchers'];
  const clone=value=>JSON.parse(JSON.stringify(value)),drafts=DoceTenants.create(localStorage);
- const sync={businessType:'confectionery',productSales:true,store:null,token:'',expires:0,revision:0,dirty:false,running:false,error:'',sequence:0,operations:[],apiIds:new Map(),derivedChanges:false};
+ const published={config:'',ops:''};let publishing=Promise.resolve();
+ const sync={businessType:'confectionery',productSales:true,store:null,token:'',expires:0,revision:0,dirty:false,running:false,error:'',sequence:0,operations:[],apiIds:new Map(),derivedChanges:false,unsent:false};
  let onlineOrders=[],activity={quotes:[],customers:[]},draftWrite=Promise.resolve();
  try{if(!localStorage.getItem('doce-legacy-snapshot-v1')&&localStorage.getItem('doce-atelier-v1'))localStorage.setItem('doce-legacy-snapshot-v1',localStorage.getItem('doce-atelier-v1'));}catch{/* The original legacy key is never modified by this runtime. */}
  const hex=bytes=>Array.from(new Uint8Array(bytes),n=>n.toString(16).padStart(2,'0')).join('');
  function snapshot(){const data=Object.fromEntries(fields.filter(k=>db[k]!==undefined).map(k=>[k,clone(db[k])]));data.products=data.products.map(p=>({...p,...((p.apiId||sync.apiIds.get(p.id))?{apiId:p.apiId||sync.apiIds.get(p.id)}:{})}));return data;}
+ function part(src,operational){
+  const out={};for(const k of fields)if(src[k]!==undefined&&OPERATIONAL.includes(k)===operational&&k!=='products')out[k]=src[k];
+  const list=src.products||[];
+  if(operational)out.stock=list.filter(p=>p.apiId||sync.apiIds.get(p.id)).map(p=>[p.apiId||sync.apiIds.get(p.id),p.stock]);
+  else out.products=list.map(({stock,stockBase,...p})=>p);
+  return JSON.stringify(out);
+ }
+ function rebase(src){published.config=part(src,false);published.ops=part(src,true);}
+ function baseline(data,shop){const t={...DoceTenants.blank(shop),...clone(data)};try{DocePantry.reconcile(t);}catch{}return t;}
+ function configChanged(){return part(db,false)!==published.config;}
+ function operationalChanged(){return part(db,true)!==published.ops;}
  function remember(){
   if(!sync.store)return Promise.resolve();
   const store=clone(sync.store),draft={data:snapshot(),revision:sync.revision,dirty:sync.dirty,sequence:sync.sequence,operations:clone(sync.operations)};
@@ -17,7 +33,7 @@
   return draftWrite;
  }
  function apply(data,shop){if(shop)sync.businessType=shop.business_type||'confectionery';db={...DoceTenants.blank(shop),...clone(data),customer:{name:'',phone:'',address:'',notes:''}};for(const p of db.products)if(p.apiId)sync.apiIds.set(p.id,p.apiId);const beforeCosting=JSON.stringify(db);DocePantry.reconcile(db);sync.derivedChanges=JSON.stringify(db)!==beforeCosting;document.documentElement.style.setProperty('--p',db.settings.color||'#a84e6e');}
- function syncLabel(){return sync.running?'Enviando alterações…':sync.error?'Não enviado: '+sync.error:sync.dirty?'Rascunho salvo neste aparelho. Envie para publicar.':'Sem alterações pendentes · revisão '+sync.revision;}
+ function syncLabel(){return sync.running?'Enviando alterações…':sync.error?'Não enviado: '+sync.error:sync.dirty?'Configurações em rascunho neste aparelho. Envie para publicar.':'Configurações publicadas · revisão '+sync.revision+'. Pedidos, estoque e produção são enviados na hora.';}
  function failSync(error){sync.error=error.message;banner();notify(error.message,'error');}
  function banner(){
   window.DoceAdminSync?.mount({dirty:!!admin&&sync.dirty,running:sync.running,onSend:send,onError:failSync});
@@ -28,7 +44,60 @@
  window.publishAdminDraft=()=>send().catch(failSync);
  function salonUrl(){const url=new URL('salon.html',document.baseURI);url.searchParams.set('shop',sync.store.id);url.searchParams.set('api',sync.store.api);url.searchParams.set('role','admin');return url.href;}
 
- save=function(){if(!sync.store||!admin)return;sync.dirty=true;sync.sequence++;const pending=remember();banner();window.DoceNotify?.draft(sync.store,true);return DoceLoading.run(pending);};
+ save=function(){
+  if(!sync.store||!admin)return;
+  sync.sequence++;
+  const operational=operationalChanged();
+  sync.dirty=sync.dirty||configChanged();
+  const pending=remember();banner();window.DoceNotify?.draft(sync.store,sync.dirty);
+  if(operational&&!sync.unsent)void publishNow([],'Registro enviado. Clientes e outros aparelhos já veem a atualização.').catch(failOperational);
+  return DoceLoading.run(pending);
+ };
+ function failOperational(error){
+  // Kept on this device and in the draft: only Enviar alterações or a new confirmation sends it.
+  sync.unsent=true;sync.dirty=true;remember();banner();window.DoceNotify?.draft(sync.store,true);
+  notify(error.message+' A alteração ficou salva neste aparelho; use Enviar alterações para tentar de novo.','error');
+ }
+ /* Sends operation now: the published server copy plus this device's operational fields and
+    the given order/quote operations. Configuration still waiting in the draft is not sent. */
+ function publishNow(operations=[],done){
+  const run=async()=>{
+   const remote=await request(prefix()+'/workspace');
+   if(!remote.data)throw Error('Publique as configurações iniciais da loja com Enviar alterações antes de registrar a operação.');
+   const current=(remote.admin_revision??remote.revision)<=sync.revision,payload=clone(remote.data),local=snapshot(),overlay=operationalChanged();
+   for(const k of ['orders','settings','branding','nextId'])if(payload[k]===undefined)payload[k]=clone(local[k]);
+   if(overlay){
+    if(!current)throw Error('Outro aparelho publicou alterações desta loja. Toque em Atualizar do servidor antes de registrar esta movimentação.');
+    for(const k of OPERATIONAL)if(local[k]!==undefined)payload[k]=clone(local[k]);
+    for(const p of payload.products){const mine=local.products.find(x=>x.apiId===p.apiId);if(mine&&Number.isInteger(mine.stockBase)){p.stock=mine.stock;p.stockBase=mine.stockBase;}}
+   }
+   const endLoading=DoceLoading.begin();
+   try{
+    const result=await request(prefix()+'/workspace','PUT',{revision:remote.revision,data:payload,operations});
+    for(const k of OPERATIONAL)if(result.data[k]!==undefined)db[k]=clone(result.data[k]);
+    for(const p of db.products){const stored=result.data.products.find(x=>x.apiId===(p.apiId||sync.apiIds.get(p.id)));if(stored){p.stock=stored.stock;p.stockBase=stored.stockBase;}}
+    published.ops=part(result.data,true);
+    // The draft keeps its configuration; its base moves forward only if nobody else published meanwhile.
+    if(current){sync.revision=result.revision;if(!sync.dirty)published.config=part(result.data,false);}
+    remember();await live().catch(()=>{});render();if(done)notify(done);
+    return result;
+   }finally{endLoading();}
+  };
+  const next=publishing.catch(()=>{}).then(run);publishing=next;return next;
+ }
+ function confirmAction(title,lines,accept){
+  return new Promise(resolve=>{
+   const dialog=document.createElement('dialog');dialog.className='action-confirm';dialog.setAttribute('aria-label',title);
+   const h=document.createElement('h2');h.textContent=title;
+   const body=document.createElement('div');body.className='action-confirm-body';for(const line of lines){const p=document.createElement('p');p.textContent=line;body.append(p);}
+   const actions=document.createElement('div');actions.className='action-confirm-actions';
+   const back=document.createElement('button');back.type='button';back.className='btn';back.textContent='Voltar';
+   const ok=document.createElement('button');ok.type='button';ok.className='btn primary';ok.textContent=accept||'Confirmar e enviar';
+   let settled=false;const finish=value=>{if(settled)return;settled=true;dialog.close();dialog.remove();resolve(value);};
+   back.onclick=()=>finish(false);ok.onclick=()=>finish(true);dialog.addEventListener('cancel',e=>{e.preventDefault();finish(false);});
+   actions.append(back,ok);dialog.append(h,body,actions);document.body.append(dialog);dialog.showModal();back.focus();
+  });
+ }
  async function keys(){
   const database=await new Promise((resolve,reject)=>{const r=indexedDB.open('doce-atelie-admin-keys',1);r.onupgradeneeded=()=>r.result.createObjectStore('keys');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
   try{return await new Promise((resolve,reject)=>{const tx=database.transaction('keys','readonly'),store=tx.objectStore('keys'),name='doce-admin-key-'+sync.store.id+'@'+sync.store.api;const privateKey=store.get(name),publicKey=store.get(name+'-public');tx.oncomplete=()=>resolve({privateKey:privateKey.result,publicKey:publicKey.result});tx.onerror=()=>reject(tx.error);});}finally{database.close();}
@@ -54,7 +123,7 @@
   const sequence=sync.sequence,data=snapshot(),operations=clone(sync.operations);sync.running=true;sync.error='';banner();const endLoading=DoceLoading.begin();
   try{
    const result=await request(prefix()+'/workspace','PUT',{revision:sync.revision,data,operations});sync.revision=result.revision;
-   if(sync.sequence===sequence){apply(result.data);sync.dirty=sync.derivedChanges;sync.operations=[];}
+   if(sync.sequence===sequence){apply(result.data);rebase(result.data);sync.dirty=sync.derivedChanges;sync.unsent=false;sync.operations=[];}
    else{for(const product of db.products){const stored=result.data.products.find(p=>p.id===product.id);if(stored)product.apiId=stored.apiId;}sync.operations=sync.operations.filter(op=>!operations.some(sent=>sent.id===op.id&&sent.kind===op.kind&&JSON.stringify(sent)===JSON.stringify(op)));}
    remember();await live();render();notify('Alterações enviadas. A loja já está atualizada para os clientes.');
   }catch(e){sync.error=e.message;sync.dirty=true;remember();throw e;}
@@ -66,7 +135,7 @@
   if(sync.dirty&&!confirm('Substituir o rascunho deste aparelho pela versão do servidor? Você pode exportar o rascunho antes.'))return;
   const endLoading=DoceLoading.begin();try{
   const remote=await request(prefix()+'/workspace'),catalog=await request(prefix()+'/products');sync.productSales=catalog.modules?.products!==false;
-  apply(remote.data||DoceTenants.blank(catalog.shop,products(catalog.products)),catalog.shop);sync.revision=remote.revision;sync.operations=[];sync.dirty=sync.derivedChanges;sync.error='';sync.sequence++;remember();await live();render();banner();
+  apply(remote.data||DoceTenants.blank(catalog.shop,products(catalog.products)),catalog.shop);rebase(db);sync.revision=remote.revision;sync.operations=[];sync.dirty=sync.derivedChanges;sync.unsent=false;sync.error='';sync.sequence++;remember();await live();render();banner();
   }finally{endLoading();}
  }
  async function enter(importLocal=false){
@@ -79,6 +148,7 @@
    const base=remote.data||DoceTenants.blank(catalog.shop,products(catalog.products));sync.apiIds=new Map(base.products.filter(p=>p.apiId).map(p=>[p.id,p.apiId]));
    let pending=await DoceAdminDrafts.load(store)||drafts.load(store);
    if(!pending){try{const old=JSON.parse(localStorage.getItem('doce-pending-workspace:'+store.api+':'+store.id)||'null');if(old)pending={...old,dirty:true,sequence:0,operations:[]};}catch{}}
+   rebase(baseline(base,catalog.shop));sync.unsent=false;
    apply(pending?.dirty?pending.data:base,catalog.shop);sync.revision=pending?.dirty?pending.revision:remote.revision;sync.operations=pending?.dirty?pending.operations||[]:[];sync.dirty=!!pending?.dirty||sync.derivedChanges;sync.sequence=pending?.sequence||0;sync.error='';
    if(importLocal){
     const file=document.getElementById('panelBackup').files[0];let imported;
@@ -126,27 +196,63 @@
   if(isSalon){const nav=document.getElementById('nav');nav.innerHTML='<button onclick="location.href=\''+esc(salonUrl())+'\'"><b>'+flowSvg('chart')+'</b><span>Meu painel</span></button><button class="'+(tab==='adminmenu'?'on':'')+'" onclick="tab=\'adminmenu\';render()"><b>'+flowSvg('settings')+'</b><span>Gestão</span></button><button class="'+(tab==='settings'?'on':'')+'" onclick="tab=\'settings\';render()"><b>'+flowSvg('settings')+'</b><span>Configurações</span></button>';}
   banner();window.ElumeArea?.show({role:'owner',name:db.settings.name,kind:sync.businessType});
  };
- const originalAdmin=renderAdmin;renderAdmin=function(){return originalAdmin().replace('Modo demonstração · acesso não protegido','Rascunho da loja · publique com Enviar alterações');};
+ const originalAdmin=renderAdmin;renderAdmin=function(){return originalAdmin().replace('Modo demonstração · acesso não protegido','Configurações vão por Enviar alterações · pedidos e estoque vão na hora');};
  const originalSettings=adminSettings;adminSettings=function(){
-  let html=originalSettings().replace('<h3>Dados de demonstração</h3>','<h3>Backup do rascunho</h3>').replace(/<button class="btn danger"[\s\S]*?<\/button>/,'').replace('Sem autenticação real. Qualquer pessoa com acesso ao código pode alterar os dados locais. Para produção, use API, autenticação e autorização de papéis no servidor.','As mudanças só ficam disponíveis para clientes após Enviar alterações.');
+  let html=originalSettings().replace('<h3>Dados de demonstração</h3>','<h3>Backup do rascunho</h3>').replace(/<button class="btn danger"[\s\S]*?<\/button>/,'').replace('Sem autenticação real. Qualquer pessoa com acesso ao código pode alterar os dados locais. Para produção, use API, autenticação e autorização de papéis no servidor.','Configurações ficam disponíveis para clientes após Enviar alterações. Pedidos, orçamentos, estoque e produção são enviados na hora.');
   if(sync.businessType==='salon'&&!sync.productSales)html=html.replace(/<div class="two"><label class="field">Taxa de entrega[\s\S]*?<\/div><div class="field">Paletas/,'<div class="field">Paletas').replace(/<p class="muted tiny">\* Pedido mínimo[\s\S]*?<\/p>/,'');
   return '<div class="elume-platform-signature"><img src="elume-logo-horizontal.svg" alt="Elume Shop" width="240" height="74"></div><div class="panel stack"><h2>Sincronização e rascunho</h2><p>Tipo: <strong>'+(sync.businessType==='salon'?'Salão':'Doçaria')+'</strong> · definido no Master.</p><p id="adminSyncStatus" role="status">'+esc(syncLabel())+'</p><button id="adminConfigSend" class="btn primary full" onclick="publishAdminDraft()" '+(sync.running||!sync.dirty?'disabled':'')+'>Enviar alterações</button><button class="btn full" onclick="reloadAdminStore()">Atualizar do servidor</button><button class="btn full" onclick="exportData()">Exportar rascunho</button></div>'+html;
  };
  getStoreId=function(){return sync.store?.id||'';};
  qrImageUrl=function(){if(!sync.store)throw Error('Entre na administração da loja.');const code=qrcode(0,'M');code.addData(DoceStores.qr(sync.store));code.make();return code.createDataURL(8,32);};
- const originalStoreQr=storeQr;storeQr=function(){return originalStoreQr().replace('QR demonstrativo vinculado ao armazenamento deste navegador. Não use para divulgação comercial definitiva: a versão multi-loja precisará gerar o QR a partir de um identificador permanente registrado no servidor.','Este QR identifica a loja no servidor. O cliente vê apenas os dados publicados com Enviar alterações.');};
- function stage(operation){if(sync.running)return;sync.operations=sync.operations.filter(op=>!(op.kind===operation.kind&&op.id===operation.id));sync.operations.push(operation);save();render();}
+ const originalStoreQr=storeQr;storeQr=function(){return originalStoreQr().replace('QR demonstrativo vinculado ao armazenamento deste navegador. Não use para divulgação comercial definitiva: a versão multi-loja precisará gerar o QR a partir de um identificador permanente registrado no servidor.','Este QR identifica a loja no servidor. O cliente vê as configurações publicadas e a operação registrada.');};
+ async function sendOperation(operation,title,lines,done,accept){
+  if(sync.running)return;
+  if(!await confirmAction(title,lines,accept))return;
+  try{await publishNow([operation],done);}catch(e){notify(e.message+' Nada foi alterado para o cliente.','error');await live().catch(()=>{});render();}
+ }
  window.getProductionOrders=()=>onlineOrders.map(o=>({id:o.id,status:labels[o.status]||o.status,items:o.items.map(i=>({id:db.products.find(p=>p.apiId===i.product_id)?.id,qty:i.qty}))}));
  const labels={recebido:'Recebido',preparo:'Em preparo',pronto:'Pronto',saiu_para_entrega:'Saiu para entrega',entregue:'Entregue',cancelado:'Cancelado'};
- function choices(order){const current=labels[order.status]||order.status,steps=flowConfig(order.details?.method||'Retirada'),index=steps.indexOf(current);return [...(index>=0&&index<steps.length-1?[steps[index+1]]:[]),...(!['Entregue','Cancelado'].includes(current)?['Cancelado']:[])];}
- const originalOrders=adminOrders;adminOrders=function(){return '<div class="panel"><h2>Pedidos dos clientes</h2><button class="btn" onclick="refreshOnlineOrders()">Atualizar pedidos</button>'+onlineOrders.map(o=>{const pending=sync.operations.find(op=>op.kind==='order_status'&&op.id===o.id);return '<article class="panel"><b>#'+esc(o.id.slice(0,8))+' · '+esc(o.details?.customer?.name||'Cliente')+'</b><p>'+o.items.map(i=>i.qty+' × '+esc(i.name)).join(', ')+'</p><p>'+money(o.total_cents/100)+' · '+esc(o.details?.method||'Retirada')+'</p><p>'+esc(o.details?.address||'')+'</p><p>'+esc(labels[o.status]||o.status)+(pending?' → '+esc(pending.status)+' (não enviado)':'')+'</p>'+(o.details?.customerOnWay?'<p>Cliente avisou que está indo buscar.</p>':'')+'<button class="btn" onclick="onlineOrderDetails('+esc(JSON.stringify(o.id))+')">Detalhes do pedido</button>'+choices(o).map(status=>'<button class="btn" onclick="stageOrderStatus('+esc(JSON.stringify(o.id))+','+esc(JSON.stringify(status))+')">'+esc(status)+'</button>').join('')+'</article>';}).join('')+'</div>'+originalOrders();};
- window.stageOrderStatus=function(id,status){const order=onlineOrders.find(o=>o.id===id);if(!order)return;if(status==='Cancelado'&&!confirm('Preparar cancelamento deste pedido? Ele será efetivado somente ao enviar alterações.'))return;stage({kind:'order_status',id,expected:order.status,status});};
+ function onlineFlow(o){
+  const current=labels[o.status]||o.status,steps=flowConfig(o.details?.method||'Retirada'),done=['Entregue','Concluído'].includes(current);
+  let index=steps.indexOf(current);if(done)index=steps.length-1;
+  return '<div class="order-flow" role="group" aria-label="Etapas do pedido">'+steps.map((s,i)=>{const next=current!=='Cancelado'&&!done&&i===index+1,label=flowLabel(s);
+   return '<div class="order-flow-step '+(i<index||done&&i===index?'flow-done':i===index?'flow-current':'flow-next')+'"><button type="button" '+(next?'onclick="advanceOnlineOrder('+esc(JSON.stringify(o.id))+','+i+')" title="Avançar para '+esc(label)+'" aria-label="Avançar para '+esc(label)+'"':'disabled title="'+esc(label)+'" aria-label="'+esc(label)+'"')+'>'+flowSvg(allFlowSteps()[s]?.[0])+'</button><small>'+esc(label)+'</small></div>';}).join('')+'</div>';
+ }
+ function onlineCard(o){
+  const d=o.details||{},current=labels[o.status]||o.status,open=!['Entregue','Concluído','Cancelado'].includes(current);
+  return '<article class="panel order-management-card"><div class="order-management-head"><div><strong>#'+esc(o.id.slice(0,6))+' · '+esc(d.customer?.name||'Cliente')+'</strong><small>'+esc(d.method||'Retirada')+(d.scheduledDate?' · '+esc(new Date(d.scheduledDate+'T12:00:00').toLocaleDateString('pt-BR')):'')+'</small></div><b>'+money(o.total_cents/100)+'</b></div><p>'+o.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')+'</p>'+(current==='Cancelado'?'<p class="order-cancelled">Pedido cancelado</p>':onlineFlow(o))+'<div class="order-management-foot"><span>'+esc(current)+(d.customerOnWay?' · Cliente a caminho':'')+'</span><span class="order-actions"><button class="btn" onclick="onlineOrderDetails('+esc(JSON.stringify(o.id))+')">Detalhes</button>'+(open?'<button class="btn danger" onclick="cancelOnlineOrder('+esc(JSON.stringify(o.id))+')">Cancelar pedido</button>':'')+'</span></div></article>';
+ }
+ const originalOrders=adminOrders;adminOrders=function(){
+  const open=onlineOrders.filter(o=>!['entregue','cancelado'].includes(o.status));
+  return '<div class="section"><h2>Pedidos dos clientes</h2><button class="btn" onclick="refreshOnlineOrders()">Atualizar pedidos</button></div><div class="order-stats"><div><strong>'+open.length+'</strong><small>Na fila</small></div><div><strong>'+open.filter(o=>o.status==='preparo').length+'</strong><small>Em preparo</small></div><div><strong>'+open.filter(o=>o.status==='pronto').length+'</strong><small>Prontos</small></div></div><p class="muted tiny">Toque no ícone da próxima etapa. Depois de confirmar, o cliente vê a mudança na hora.</p>'+(onlineOrders.map(onlineCard).join('')||'<div class="empty">Nenhum pedido de cliente ainda.</div>')+(db.orders.length?originalOrders():'');
+ };
+ function orderLines(o,from,to){const d=o.details||{};return ['Pedido #'+o.id.slice(0,6)+' · '+(d.customer?.name||'Cliente'),o.items.map(i=>i.qty+'× '+i.name).join(', '),'Etapa atual: '+from,'Nova etapa: '+to];}
+ window.advanceOnlineOrder=function(id,index){
+  const order=onlineOrders.find(o=>o.id===id);if(!order)return;
+  const current=labels[order.status]||order.status,steps=flowConfig(order.details?.method||'Retirada');
+  if(index!==steps.indexOf(current)+1)return notify('Avance uma etapa de cada vez.');
+  const next=steps[index];
+  void sendOperation({kind:'order_status',id,expected:order.status,status:next},'Confirmar nova etapa',[...orderLines(order,flowLabel(current),flowLabel(next)),'O cliente verá a nova etapa assim que você confirmar.'],'Pedido atualizado. O cliente já vê: '+flowLabel(next)+'.');
+ };
+ window.cancelOnlineOrder=function(id){
+  const order=onlineOrders.find(o=>o.id===id);if(!order)return;
+  void sendOperation({kind:'order_status',id,expected:order.status,status:'Cancelado'},'Cancelar este pedido?',[...orderLines(order,labels[order.status]||order.status,'Cancelado'),'Os itens voltam ao estoque e o cliente é avisado. Não é possível desfazer.'],'Pedido cancelado e cliente avisado.','Cancelar pedido');
+ };
+ window.stageOrderStatus=function(id,status){
+  const order=onlineOrders.find(o=>o.id===id);if(!order)return;
+  if(status==='Cancelado')return window.cancelOnlineOrder(id);
+  const index=flowConfig(order.details?.method||'Retirada').indexOf(status);if(index>=0)window.advanceOnlineOrder(id,index);
+ };
  window.setOnlineOrderStatus=window.stageOrderStatus;
  window.onlineOrderDetails=function(id){const order=onlineOrders.find(o=>o.id===id);if(!order)return;const d=order.details||{};showModal('<h2>Pedido #'+esc(id.slice(0,8))+'</h2><p><b>'+esc(d.customer?.name||'Cliente')+'</b></p><p>WhatsApp: '+esc(d.customer?.phone||'Não informado')+'</p><p>'+esc(d.method||'Retirada')+' · '+esc(d.address||'Retirada na loja')+'</p><p>Observações: '+esc(d.notes||'Nenhuma')+'</p><p>Pagamento: '+esc(d.payment||'A combinar')+' · '+esc(d.paymentStatus||'Não confirmado')+'</p>'+(d.scheduledDate?'<p>Agendado: '+esc(d.scheduledDate)+'</p>':'')+(d.voucherCode?'<p>Voucher: '+esc(d.voucherCode)+'</p>':'')+'<p>'+money(order.total_cents/100)+'</p><button class="btn full" onclick="closeModal()">Fechar</button>');};
  window.refreshOnlineOrders=async()=>{try{await live();render();}catch(e){notify(e.message,'error');}};
- const originalBooking=adminBooking;adminBooking=function(){return '<div class="panel"><h2>Orçamentos recebidos</h2><button class="btn" onclick="refreshOnlineOrders()">Atualizar solicitações</button>'+activity.quotes.map(q=>{const pending=sync.operations.find(op=>op.kind==='quote'&&op.id===q.id);return '<article class="panel" data-quote-id="'+esc(q.id)+'"><b>'+esc(q.customer?.name||'Cliente')+' · '+esc(q.status)+'</b><p>'+esc(q.date)+' · '+q.items.map(i=>i.qty+' × '+esc(i.name)).join(', ')+'</p><p>'+money(q.subtotal+q.fee)+'</p>'+(pending?'<p>Alteração preparada. Clique em Enviar alterações.</p>':'')+(['Solicitado','Aguardando cliente'].includes(q.status)?'<form class="stack" onsubmit="stageQuote(event,'+esc(JSON.stringify(q.id))+')"><label class="field">Data<input name="date" type="date" required value="'+esc(q.date)+'"></label><label class="field">Produtos (R$)<input name="subtotal" type="number" min="0" step="0.01" required value="'+q.subtotal+'"></label><label class="field">Entrega (R$)<input name="fee" type="number" min="0" step="0.01" required value="'+q.fee+'"></label><button class="btn primary">Preparar proposta</button><button type="button" class="btn" onclick="rejectRemoteQuote('+esc(JSON.stringify(q.id))+')">Preparar recusa</button></form>':'')+'</article>';}).join('')+'</div>'+originalBooking();};
- window.stageQuote=function(event,id){event.preventDefault();const quote=activity.quotes.find(q=>q.id===id),f=new FormData(event.target);if(quote)stage({kind:'quote',id,revision:quote.revision,decision:'propose',date:String(f.get('date')),subtotal:Number(f.get('subtotal')),fee:Number(f.get('fee'))});};
- window.rejectRemoteQuote=function(id){const quote=activity.quotes.find(q=>q.id===id);if(quote)stage({kind:'quote',id,revision:quote.revision,decision:'reject'});};
+ const originalBooking=adminBooking;adminBooking=function(){return '<div class="panel"><h2>Orçamentos recebidos</h2><button class="btn" onclick="refreshOnlineOrders()">Atualizar solicitações</button>'+activity.quotes.map(q=>{const pending=sync.operations.find(op=>op.kind==='quote'&&op.id===q.id);return '<article class="panel" data-quote-id="'+esc(q.id)+'"><b>'+esc(q.customer?.name||'Cliente')+' · '+esc(q.status)+'</b><p>'+esc(q.date)+' · '+q.items.map(i=>i.qty+' × '+esc(i.name)).join(', ')+'</p><p>'+money(q.subtotal+q.fee)+'</p>'+(pending?'<p>Alteração antiga ainda no rascunho deste aparelho. Use Enviar alterações para concluí-la.</p>':'')+(['Solicitado','Aguardando cliente'].includes(q.status)?'<form class="stack" onsubmit="stageQuote(event,'+esc(JSON.stringify(q.id))+')"><label class="field">Data<input name="date" type="date" required value="'+esc(q.date)+'"></label><label class="field">Produtos (R$)<input name="subtotal" type="number" min="0" step="0.01" required value="'+q.subtotal+'"></label><label class="field">Entrega (R$)<input name="fee" type="number" min="0" step="0.01" required value="'+q.fee+'"></label><button class="btn primary">Enviar proposta</button><button type="button" class="btn" onclick="rejectRemoteQuote('+esc(JSON.stringify(q.id))+')">Recusar orçamento</button></form>':'')+'</article>';}).join('')+'</div>'+originalBooking();};
+ window.stageQuote=function(event,id){
+  event.preventDefault();const quote=activity.quotes.find(q=>q.id===id),f=new FormData(event.target);if(!quote)return;
+  const date=String(f.get('date')),subtotal=Number(f.get('subtotal')),fee=Number(f.get('fee'));
+  void sendOperation({kind:'quote',id,revision:quote.revision,decision:'propose',date,subtotal,fee},'Enviar proposta ao cliente?',[(quote.customer?.name||'Cliente')+' · '+quote.items.map(i=>i.qty+'× '+i.name).join(', '),'Data: '+new Date(date+'T12:00:00').toLocaleDateString('pt-BR'),'Produtos: '+money(subtotal)+' · Entrega: '+money(fee)+' · Total: '+money(subtotal+fee),'O cliente recebe a proposta na hora e precisa aceitar para virar pedido.'],'Proposta enviada ao cliente.','Enviar proposta');
+ };
+ window.rejectRemoteQuote=function(id){const quote=activity.quotes.find(q=>q.id===id);if(quote)void sendOperation({kind:'quote',id,revision:quote.revision,decision:'reject'},'Recusar este orçamento?',[(quote.customer?.name||'Cliente')+' · '+quote.items.map(i=>i.qty+'× '+i.name).join(', '),'O cliente é avisado da recusa na hora. Não é possível desfazer.'],'Orçamento recusado e cliente avisado.','Recusar orçamento');};
  const originalBonuses=adminBonuses;adminBonuses=function(){return originalBonuses().replace('Atenção: esta demonstração usa armazenamento local. Para impedir fraude e sincronizar entre aparelhos, a validação deverá ocorrer no servidor.','Os benefícios de clientes são validados no servidor e separados por loja.')+'<div class="panel"><h3>Clientes e benefícios desta loja</h3><button class="btn" onclick="refreshOnlineOrders()">Atualizar benefícios</button>'+activity.customers.map(c=>'<p>'+esc(c.profile.name||'Cliente')+' · '+c.benefits.earned+' carimbos · '+c.vouchers.length+' vouchers</p>').join('')+'</div>';};
  const originalDashboard=adminDashboard;adminDashboard=function(){
   const oldOrders=db.orders,oldVouchers=db.loyaltyVouchers;

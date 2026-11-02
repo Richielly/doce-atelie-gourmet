@@ -14,14 +14,16 @@
 - O app abre na vitrine; QR identifica loja e servidor sem campos técnicos no cliente.
   Use assets.json como lista de arquivos ativos. Não reative o fluxo de catálogo
   separado ou publicação técnica de produtos na experiência de compra.
-- A administração usa rascunhos no IndexedDB. Persistir no banco exige Enviar
-  alterações, inclusive status de pedidos e propostas. Não reintroduza autoenvio.
+- A administração usa rascunhos no IndexedDB só para configurações; publicá-las exige
+  Enviar alterações. Operação (status de pedidos, orçamentos, agenda do salão) é confirmada
+  em diálogo e enviada na hora; estoque, despensa, produção e agenda de encomendas vão ao
+  salvar. Nunca enviar pendências ao abrir, atualizar ou reconectar.
 - Dados e credenciais devem ser separados por loja e servidor, inclusive pedidos,
   perfil, carrinho, benefícios e rascunhos. Permita celular e computador simultâneos.
 - Profissionais do salão são exceção ao envio manual por sincronização: apresentar
   resumo e confirmação por ação, depois enviar imediatamente. Sem envio de pendências
   ao abrir/reconectar; tentar novamente exige revisão e nova confirmação.
-  O fluxo do dono/lojista permanece com rascunho e Enviar alterações.
+  O dono/lojista usa a mesma confirmação nas ações de agenda; configurações seguem com rascunho.
 - Nas telas do salão, ações usam ícones com title/aria-label; escolhas de valor,
   como vagas por horário, mantêm seu conteúdo. Identifique sempre papel e loja.
 - Painéis exibem só a parcela financeira do papel autenticado. Preço pode vir do
