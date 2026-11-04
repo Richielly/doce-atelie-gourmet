@@ -118,6 +118,8 @@
  function products(list){return list.map((p,i)=>({id:i+1,apiId:p.id,name:p.name,cat:'Produtos',desc:'',price:p.price_cents/100,cost:0,stock:p.stock,minQty:p.min_qty,qtyStep:p.increment,image:p.photo_url||'',emoji:'🛍️',active:p.enabled}));}
  async function allOrders(){const all=new Map();let offset=0;while(true){const page=await request(prefix()+'/orders?limit=100&offset='+offset);for(const order of page)all.set(order.id,order);if(page.length<100)break;offset+=100;}return [...all.values()];}
  async function live(){const result=await Promise.all([allOrders(),request(prefix()+'/customer-activity')]);onlineOrders=result[0];activity=result[1];}
+ // Servers before 0.20.0 have no plans: nothing is limited on the device.
+ async function plan(){try{window.ElumePlan?.set(await request(prefix()+'/plan'));}catch{window.ElumePlan?.set(null);}}
  async function send(){
   if(!sync.dirty||sync.running)return;
   const sequence=sync.sequence,data=snapshot(),operations=clone(sync.operations);sync.running=true;sync.error='';banner();const endLoading=DoceLoading.begin();
@@ -135,7 +137,7 @@
   if(sync.dirty&&!confirm('Substituir o rascunho deste aparelho pela versão do servidor? Você pode exportar o rascunho antes.'))return;
   const endLoading=DoceLoading.begin();try{
   const remote=await request(prefix()+'/workspace'),catalog=await request(prefix()+'/products');sync.productSales=catalog.modules?.products!==false;
-  apply(remote.data||DoceTenants.blank(catalog.shop,products(catalog.products)),catalog.shop);rebase(db);sync.revision=remote.revision;sync.operations=[];sync.dirty=sync.derivedChanges;sync.unsent=false;sync.error='';sync.sequence++;remember();await live();render();banner();
+  apply(remote.data||DoceTenants.blank(catalog.shop,products(catalog.products)),catalog.shop);rebase(db);sync.revision=remote.revision;sync.operations=[];sync.dirty=sync.derivedChanges;sync.unsent=false;sync.error='';sync.sequence++;remember();await Promise.all([live(),plan()]);render();banner();
   }finally{endLoading();}
  }
  async function enter(importLocal=false){
@@ -166,7 +168,7 @@
    localStorage.setItem('doce-admin-last-store',JSON.stringify(store));
    // These compatibility values belong to the administration only; customers use a separate namespace.
    localStorage.setItem('doce-api-url',store.api);localStorage.setItem('doce-shop-id',store.id);
-   admin=true;tab=new URLSearchParams(location.search).get('section')==='settings'?'settings':sync.businessType==='salon'?'adminmenu':'dashboard';page='home';cart={};remember();await live();closeModal();render();banner();
+   admin=true;tab=new URLSearchParams(location.search).get('section')==='settings'?'settings':sync.businessType==='salon'?'adminmenu':'dashboard';page='home';cart={};remember();await Promise.all([live(),plan()]);closeModal();render();banner();
    const notifyStore={...store,name:db.settings.name};
    const ctx=window.DoceNotify?.connect({store:notifyStore,role:'admin',request:(suffix,method,body)=>{if(sync.store?.id!==store.id||sync.store?.api!==store.api)throw Error('Abra a administração desta loja para atualizar seus avisos.');return request('/admin/shops/'+encodeURIComponent(store.id)+'/notifications'+suffix,method,body);}});
    if(ctx)ctx.navigate=async target=>{if(target.screen==='salon'){location.href=DoceNotificationCore.route(store,'admin',target,document.baseURI);return;}tab=DoceNotificationCore.pages.admin[target.screen]||'dashboard';if(tab==='deliveries'||tab==='booking')await live();render();if(target.order_id)onlineOrderDetails(target.order_id);else window.DoceNotify?.focusTarget(target);};

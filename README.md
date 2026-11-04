@@ -29,6 +29,11 @@ Celular e computador podem administrar a mesma loja. Salvar um formulário prepa
 rascunho; Enviar alterações publica o conjunto. Conflitos de revisão preservam o rascunho.
 Importações do app antigo ficam na entrada administrativa e também exigem envio manual.
 
+O plano da loja (servidor 0.20.0+) limita a administração, nunca a área do cliente.
+`plan-limits.js` mostra o uso de cada limite, põe cadeado em criar acima dele e bloqueia
+os painéis gerenciais fora do plano. Quem decide é o servidor; sem a rota de plano, nada
+é limitado no aparelho.
+
 ## Android e versões
 
 `release.json` define versionName e versionCode, independentemente da versão do servidor.
