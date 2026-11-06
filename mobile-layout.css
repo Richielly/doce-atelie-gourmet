@@ -49,6 +49,7 @@ body:has(#salon-nav){padding-bottom:calc(100px + var(--elume-safe-bottom))}
 .plan-usage-full{background:#f3ecfb;border-radius:12px;padding:10px 12px;color:#4b2a7b;font-weight:600}
 .plan-lock-icon{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;margin-right:6px}
 [data-plan-locked] .plan-lock-icon{margin-right:6px}
+.admin-menu-tile[data-plan-locked]{opacity:.55}.admin-menu-tile[data-plan-locked]>span:last-child::after{content:' · não incluído';font-weight:400}
 .plan-locked-panel{border:1px dashed #b9a2da;background:#faf7fe}
 .plan-locked-panel h2{display:flex;align-items:center;gap:4px}
 .plan-locked-panel ul{margin:8px 0;padding-left:20px;line-height:1.7}
