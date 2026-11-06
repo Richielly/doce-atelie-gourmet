@@ -108,6 +108,7 @@
   const data=await response.json();if(!response.ok){if(response.status===401)sync.expires=0;throw Error(typeof data.detail==='string'?data.detail:'Não foi possível concluir a operação.');}return data;
  }
  function prefix(){return '/admin/shops/'+encodeURIComponent(sync.store.id);}
+ window.adminApi={key:()=>JSON.stringify([sync.store.api,sync.store.id]),name:()=>sync.store.name||db.settings.name,request:(path,method='GET',body)=>DoceLoading.run(()=>request(prefix()+path,method,body))};
  async function authenticate(){
   const pair=await keys();if(!pair.privateKey||!pair.publicKey)throw Error('Ative este aparelho para a loja antes de entrar.');
   const base='/auth/shops/'+encodeURIComponent(sync.store.id),public_key=hex(await crypto.subtle.exportKey('raw',pair.publicKey));
@@ -174,7 +175,7 @@
    if(ctx)ctx.navigate=async target=>{if(target.screen==='salon'){location.href=DoceNotificationCore.route(store,'admin',target,document.baseURI);return;}tab=DoceNotificationCore.pages.admin[target.screen]||'dashboard';if(tab==='deliveries'||tab==='booking')await live();render();if(target.order_id)onlineOrderDetails(target.order_id);else window.DoceNotify?.focusTarget(target);};
    window.DoceNotify?.draft(notifyStore,sync.dirty);
    const notificationParams=new URLSearchParams(location.search),notificationTab=notificationParams.get('notification_page');
-   if(['deliveries','booking','stock','pantry','dashboard'].includes(notificationTab)){tab=notificationTab;render();if(notificationTab==='deliveries'&&notificationParams.get('notification_item'))onlineOrderDetails(notificationParams.get('notification_item'));else window.DoceNotify?.focusTarget({quote_id:notificationParams.get('notification_item')});}if(ctx)void window.DoceNotify.consume(ctx);
+   if(['deliveries','booking','stock','pantry','dashboard','campaigns'].includes(notificationTab)){tab=notificationTab;render();if(notificationTab==='deliveries'&&notificationParams.get('notification_item'))onlineOrderDetails(notificationParams.get('notification_item'));else window.DoceNotify?.focusTarget({quote_id:notificationParams.get('notification_item')});}if(ctx)void window.DoceNotify.consume(ctx);
 
   }catch(e){notify(e.message,'error');}finally{endLoading();}
  }

@@ -40,4 +40,6 @@
 
 - Ativação administrativa: o mesmo código pode autorizar celular e computador opcional, com chaves independentes. Não revogar o primeiro ao ativar o segundo. Repetições idempotentes não consomem outra autorização. Convites profissionais continuam separados.
 
+- Campanhas: só cliente com consentimento válido entra em ranking ou recebe oferta; nunca pré-marcar nem condicionar compra. Envio só após confirmação, sem reenvio automático. Dados não cruzam lojas.
+
 - Central de notificações: somente cinco prévias recentes; contador representa todas as não lidas. Tocar abre o detalhe completo e lê só aquele aviso; Ver navega apenas quando existir ação válida, preservando loja e papel. Não apagar histórico para limitar a interface.

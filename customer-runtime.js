@@ -46,7 +46,7 @@
   }catch(e){notify(e.message,'error');}
  }
  window.refreshCustomerStore=refresh;
- const baseRender=render;render=function(){baseRender();persist();void showPhotos();};
+ const baseRender=render;render=function(){baseRender();persist();void showPhotos();const offers=document.getElementById('elume-offers');if(offers)void window.ElumeConsent?.mount(offers,{key:JSON.stringify([store.api,store.id]),request:(path,method='GET',body)=>method==='GET'?requestCore(path):request(path,method,body),notify:(text,error)=>notify(text,error?'error':undefined)});};
  // Servers before 0.19.0 have no referral program; the Benefits page simply omits it.
  async function loadReferral(){try{referral=await requestCore('/me/referral');}catch{referral=null;}return referral;}
  // Ready-order photos need the customer token, so they are fetched once per version.
@@ -75,7 +75,7 @@
  save=function(){persist();};
  getStoreId=function(){return store.id;};
  walletPanel=function(){return '<div class="panel"><h3>'+esc(catalog.shop.name)+'</h3><p>Seus dados, pedidos e benefícios nesta loja ficam separados das outras lojas.</p><a class="btn full" href="minhas-lojas.html">Voltar à minha vitrine</a></div>';};
- const originalProfile=renderProfile;renderProfile=function(){return originalProfile().replace('Dados salvos apenas neste navegador, sem login real ou sincronização entre aparelhos.','Seus dados são enviados somente para esta loja.');};
+ const originalProfile=renderProfile;renderProfile=function(){return originalProfile().replace('Dados salvos apenas neste navegador, sem login real ou sincronização entre aparelhos.','Seus dados são enviados somente para esta loja.')+'<div id="elume-offers"></div>';};
  saveProfile=async function(event){event.preventDefault();const f=new FormData(event.target),profile=Object.fromEntries(['name','phone','address','notes'].map(k=>[k,String(f.get(k)||'').trim()]));try{me=await request('/me','PUT',profile);db.customer=me.profile;hydrateBenefits();persist();render();notify('Dados atualizados nesta loja.');}catch(e){notify(e.message,'error');}};
  const originalContact=renderContact;renderContact=function(){return originalContact().replace('Catálogo, carrinho e pedidos demonstrativos. Os dados ficam somente neste navegador até conectar um backend.','Você está acessando os dados publicados por '+esc(catalog.shop.name)+'.');};
  const originalHome=renderHome;renderHome=function(){const html=originalHome();if(!catalog?.modules?.salon)return html;const target=new URL('salon.html',document.baseURI);target.searchParams.set('loja',store.id);target.searchParams.set('api',store.api);return '<div class="panel"><h2>Serviços e agendamentos</h2><p>Reserve seu cuidado e acompanhe sua agenda.</p><a class="btn primary" href="'+esc(target.href)+'">Ver serviços e horários</a></div>'+html;};
@@ -115,7 +115,7 @@
    const invite=params.get('ref');if(invite&&referral?.can_apply&&state.referralTried!==invite){state.referralTried=invite;persist();try{await useReferral(invite);}catch{}}
    const ctx=window.DoceNotify?.connect({store:{...store,name:catalog.shop.name},role:'customer',request:(suffix,method,body)=>request('/me/notifications'+suffix,method,body)});
    if(ctx)ctx.navigate=async target=>{if(target.screen==='salon'){location.href=DoceNotificationCore.route(store,'customer',target,document.baseURI);return;}await refresh();page=DoceNotificationCore.pages.customer[target.screen]||'orders';render();window.DoceNotify?.focusTarget(target);};
-   const notificationPage=params.get('notification_page');if(['orders','quotes','loyalty'].includes(notificationPage)){page=notificationPage;render();window.DoceNotify?.focusTarget({order_id:params.get('notification_item')});}if(ctx)void window.DoceNotify.consume(ctx);
+   const notificationPage=params.get('notification_page');if(['orders','quotes','loyalty','home','profile'].includes(notificationPage)){page=notificationPage;render();window.DoceNotify?.focusTarget({order_id:params.get('notification_item')});}if(ctx)void window.DoceNotify.consume(ctx);
 
    document.documentElement.dataset.loading='false';
    document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refresh();});

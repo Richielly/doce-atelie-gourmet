@@ -98,7 +98,7 @@
   for(const ctx of contexts.values()){
    if(filter!=='all'&&filter!==ctx.role)continue;
    const settings=document.createElement('details');settings.className='notice-preferences';const preferenceKey=C.key(ctx.store,ctx.role);settings.open=preferenceOpen.has(preferenceKey);settings.ontoggle=()=>{if(settings.isConnected){if(settings.open)preferenceOpen.add(preferenceKey);else preferenceOpen.delete(preferenceKey);}};settings.append(el('summary',(ctx.shop?.name||ctx.store.name||'Loja')+' · '+(ctx.role==='admin'?'Lojista':ctx.role==='professional'?'Profissional':'Cliente')+' · Preferências'));
-   const allowed=ctx.role==='admin'?['orders','quotes','on_way','inventory','drafts','salon']:ctx.role==='professional'?['salon']:['orders','quotes','benefits','salon'];
+   const allowed=ctx.role==='admin'?['orders','quotes','on_way','inventory','drafts','salon','offers']:ctx.role==='professional'?['salon']:['orders','quotes','benefits','salon','offers'];
    for(const category of allowed)settings.append(toggle(C.categories[category],ctx.preferences.categories[category]!==false,value=>setPref(ctx,{categories:{[category]:value}})));
    settings.append(toggle('Som para novos avisos',ctx.preferences.sound,value=>setPref(ctx,{sound:value})));
    settings.append(toggle('Compartilhar estatísticas opcionais de uso',ctx.analytics?.enabled===true,value=>setUsage(ctx,value)));
