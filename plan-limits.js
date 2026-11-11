@@ -7,7 +7,7 @@
  let plan=null;
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const LOCK='<svg class="plan-lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
- const NOUNS={products:['produto','produtos'],recipes:['ficha técnica','fichas técnicas'],pantry_items:['ingrediente','ingredientes'],services:['serviço','serviços'],professionals:['profissional','profissionais'],campaigns_per_month:['campanha neste mês','campanhas neste mês']};
+ const NOUNS={products:['produto','produtos'],recipes:['ficha técnica','fichas técnicas'],pantry_items:['ingrediente','ingredientes'],services:['serviço','serviços'],professionals:['profissional','profissionais'],campaigns_per_month:['campanha neste mês','campanhas neste mês'],kits:['kit','kits']};
  function set(value){plan=value&&Array.isArray(value.features)?value:null;}
  function get(){return plan;}
  function feature(key){return plan?.features.find(f=>f.key===key)||null;}
@@ -68,11 +68,13 @@
  const LOCKED={
   pantry:()=>lockedPanel('Despensa',['Ingredientes, lotes e validades','Leitura de código de barras','Alertas de reposição']),
   planner:()=>lockedPanel('Produção e fichas técnicas',['Fichas técnicas com custo por produto','Plano de produção pelos pedidos','Registro do que foi produzido']),
+  kits:()=>lockedPanel('Kits',['Caixinhas e kits com produtos e embalagens','Quantos kits dá para montar com o saldo','Produção reservada para os kits']),
   bonuses:()=>lockedPanel('Benefícios e indicação',['Cartão de fidelidade e prêmios','Indicação de clientes','Os clientes mantêm o que já ganharam'])};
  const originalPantry=adminPantry;root.adminPantry=function(){if(!included('pantry_items'))return LOCKED.pantry();return decorate(originalPantry(),'pantry_items',count.pantry_items(),'onclick="editIngredient()"',{before:'<div class="pantry-actions"'});};
  const originalPlanner=adminPlanner;root.adminPlanner=function(){if(!included('recipes'))return LOCKED.planner();return decorate(originalPlanner(),'recipes',count.recipes(),'onclick="editRecipe()"',{after:'</div>'});};
+ if(typeof root.adminKits==='function'){const originalKits=root.adminKits;root.adminKits=function(){return included('kits')?originalKits():LOCKED.kits();};}
  const originalBonuses=adminBonuses;root.adminBonuses=function(){return included('bonuses')?originalBonuses():LOCKED.bonuses();};
- const originalMenu=adminMenu;root.adminMenu=function(){let html=originalMenu();for(const[page,key]of[['pantry','pantry_items'],['planner','recipes'],['bonuses','bonuses'],['campaigns','campaigns']])if(!included(key))html=html.replace("tab='"+page+"';render()\"><span class=\"admin-menu-icon\">","tab='"+page+"';render()\" data-plan-locked=\"true\"><span class=\"admin-menu-icon\">");return html;};
+ const originalMenu=adminMenu;root.adminMenu=function(){let html=originalMenu();for(const[page,key]of[['pantry','pantry_items'],['planner','recipes'],['kits','kits'],['bonuses','bonuses'],['campaigns','campaigns']])if(!included(key))html=html.replace("tab='"+page+"';render()\"><span class=\"admin-menu-icon\">","tab='"+page+"';render()\" data-plan-locked=\"true\"><span class=\"admin-menu-icon\">");return html;};
  const originalDashboard=adminDashboard;root.adminDashboard=function(){
   const html=originalDashboard();if(included('management'))return html;
   // Operational blocks stay; indicators, charts and margins belong to the management plans.

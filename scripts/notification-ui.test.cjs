@@ -56,3 +56,16 @@ test('rascunho agenda apenas um lembrete local e envio cancela sem chamar API',(
 test('falha de leitura preserva contador e detalhe completo sem navegar',async()=>{
  const h=centerHarness(),n=h.context.rows().find(n=>n.ctx===h.a);h.a.request=async()=>{throw Error('Offline')};await h.context.showNotice(n);assert.equal(h.a.unread,200);assert.equal(h.navigation.length,0);assert.ok(h.all().some(e=>e.className==='notice-full-body'&&e.textContent===n.body));assert.ok(h.context.errorMessage.includes('Offline'));
 });
+test('pedido, orçamento e agendamento novo são alerta de venda; sistema fica separado',()=>{
+ assert.equal(C.lane('admin',{category:'orders',title:'Novo pedido'}),'order');assert.equal(C.lane('admin',{category:'on_way',title:'Cliente a caminho'}),'order');
+ assert.equal(C.lane('admin',{category:'quotes',title:'Novo orçamento'}),'quote');assert.equal(C.lane('admin',{category:'salon',title:'Novo agendamento'}),'booking');
+ for(const n of [{category:'inventory',title:'Ingrediente precisa de reposição'},{category:'orders',title:'Resumo da semana'},{category:'salon',title:'Atendimento concluído'},{category:'offers',title:'Campanha'},{local:true,category:'drafts',title:'Alterações não enviadas'}])assert.equal(C.lane('admin',n),'system',n.title);
+ assert.equal(C.lane('customer',{category:'orders',title:'Pedido recebido'}),'system','cliente não recebe alerta de venda');
+});
+test('central do lojista filtra vendas e sistema e marca o tipo de cada aviso',()=>{
+ const h=centerHarness();for(const c of [h.a,h.b])c.role='admin';h.context.contexts.clear();for(const c of [h.a,h.b])h.context.contexts.set(C.key(c.store,c.role),c);
+ h.a.items=[{id:1,category:'orders',title:'Novo pedido',body:'R$ 12,00',created_at:'2026-11-08T10:00:00Z',read:false,target:{screen:'orders'}},{id:2,category:'inventory',title:'Ingrediente precisa de reposição',body:'Leite',created_at:'2026-11-08T09:00:00Z',read:false,target:{screen:'pantry'}}];h.b.items=[{id:3,category:'salon',title:'Novo agendamento',body:'Corte',created_at:'2026-11-08T08:00:00Z',read:false,target:{screen:'salon'}}];
+ h.context.filter='sales';assert.equal(h.context.rows().map(n=>n.id).join(),'1,3');h.context.filter='system';assert.equal(h.context.rows().map(n=>n.id).join(),'2');
+ h.context.filter='all';h.context.render();const chips=h.all().filter(n=>n.className.startsWith('notice-chip')).map(n=>n.textContent);assert.deepEqual(chips,['Pedido','Agendamento']);
+ assert.ok(h.all().some(n=>n.tagName==='option'&&n.textContent==='Vendas, orçamentos e agenda'));
+});

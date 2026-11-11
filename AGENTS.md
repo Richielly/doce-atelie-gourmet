@@ -42,4 +42,6 @@
 
 - Campanhas: só cliente com consentimento válido entra em ranking ou recebe oferta; nunca pré-marcar nem condicionar compra. Envio só após confirmação, sem reenvio automático. Dados não cruzam lojas.
 
+- Kits: produção de preparo fica reservada fora do saldo de venda e nunca altera a produção comum. Ficha do kit é configuração; montar, reservar e preparar são operação, com confirmação e envio na hora.
+
 - Central de notificações: somente cinco prévias recentes; contador representa todas as não lidas. Tocar abre o detalhe completo e lê só aquele aviso; Ver navega apenas quando existir ação válida, preservando loja e papel. Não apagar histórico para limitar a interface.

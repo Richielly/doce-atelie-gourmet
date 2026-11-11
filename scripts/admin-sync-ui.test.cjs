@@ -1,11 +1,11 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 function harness(){
- class Element{constructor(tag){this.tag=tag;this.children=[];this.attributes={};this.disabled=false;}append(child){this.children.push(child);child.parent=this;}remove(){if(this.parent){this.parent.children=this.parent.children.filter(c=>c!==this);this.parent=null;}}get isConnected(){return !!this.parent;}setAttribute(k,v){this.attributes[k]=v;}}
+ class Element{constructor(tag){this.tag=tag;this.children=[];this.attributes={};this.disabled=false;}append(...cs){for(const child of cs){this.children.push(child);child.parent=this;}}remove(){if(this.parent){this.parent.children=this.parent.children.filter(c=>c!==this);this.parent=null;}}get isConnected(){return !!this.parent;}setAttribute(k,v){this.attributes[k]=v;}querySelector(tag){return this.children.find(c=>c.tag===tag);}}
  const head=new Element('head'),host=new Element('div'),body=new Element('body');body.append(host);
  const find=(root,id)=>root.id===id?root:root.children.map(c=>find(c,id)).find(Boolean);
- const doc={head,createElement:tag=>new Element(tag),getElementById:id=>find(head,id)||find(body,id),querySelector:s=>s==='.headright'?host:null};
+ const doc={head,body,createElement:tag=>new Element(tag),getElementById:id=>find(head,id)||find(body,id),querySelector:s=>s==='.headright'?host:null};
  const context={window:{document:doc}};vm.runInNewContext(fs.readFileSync(require.resolve('../admin-sync-ui.js'),'utf8'),context);
- return {mount:context.window.DoceAdminSync.mount,doc,host,body,Element};
+ return {mount:context.window.DoceAdminSync.mount,unsent:context.window.DoceAdminSync.unsent,doc,host,body,Element};
 }
 test('ícone aparece somente com rascunho pendente e montar não publica',async()=>{const h=harness();let calls=0;h.mount({dirty:false,onSend:()=>calls++});assert.equal(h.doc.getElementById('doce-admin-sync'),undefined);h.mount({dirty:true,onSend:()=>calls++});const icon=h.doc.getElementById('doce-admin-sync');assert.ok(icon);assert.equal(calls,0);await icon.onclick();assert.equal(calls,1);h.mount({dirty:false,onSend:()=>calls++});assert.equal(h.doc.getElementById('doce-admin-sync'),undefined);});
 test('envio em andamento impede toque repetido e erro mantém opção para tentar de novo',async()=>{const h=harness();let calls=0,error='';h.mount({dirty:true,running:true,onSend:()=>calls++});await h.doc.getElementById('doce-admin-sync').onclick();assert.equal(calls,0);h.mount({dirty:true,onSend:async()=>{throw Error('Sem conexão');},onError:e=>error=e.message});await h.doc.getElementById('doce-admin-sync').onclick();assert.equal(error,'Sem conexão');assert.equal(h.doc.getElementById('doce-admin-sync').disabled,false);});
@@ -13,3 +13,16 @@ test('faixa superior antiga é removida e o ícone permanece no cabeçalho',()=>
 function menu(type,productSales=false){const source=fs.readFileSync(require.resolve('../admin-runtime.js'),'utf8'),start=source.indexOf('const originalMenu=adminMenu;'),end=source.indexOf('const originalRender=render;',start),context={sync:{businessType:type,productSales},adminMenu:()=>'<button>Despensa</button><button>Produção</button><button>Ajustes</button>',esc:String,flowSvg:x=>'['+x+']',salonUrl:()=>'/salon-only'};assert.ok(start>=0&&end>start);vm.runInNewContext(source.slice(start,end),context);return context.adminMenu();}
 test('doçaria conserva sua operação e não recebe agenda de salão',()=>{const html=menu('confectionery');assert.match(html,/Despensa/);assert.match(html,/Produção/);assert.match(html,/Configurações/);assert.doesNotMatch(html,/salon-only|Agenda e serviços/);});
 test('salão não recebe despensa/produção e só mostra produtos se habilitados',()=>{const html=menu('salon');assert.match(html,/Gerenciar salão/);assert.doesNotMatch(html,/Despensa|Produção|Estoque de produtos|Pedidos de produtos/);assert.match(menu('salon',true),/Estoque de produtos/);});
+test('registros não enviados mostram faixa com texto e só reenviam pelo toque do lojista',async()=>{const h=harness();let calls=0;h.unsent({unsent:false,onRetry:()=>calls++});assert.equal(h.doc.getElementById('doce-admin-unsent'),undefined);h.unsent({unsent:true,onRetry:()=>calls++});const bar=h.doc.getElementById('doce-admin-unsent');assert.ok(bar);assert.equal(calls,0);assert.match(bar.children[0].textContent,/só neste aparelho/);assert.match(bar.children[1].innerHTML,/Reenviar registros/);await bar.children[1].onclick();assert.equal(calls,1);h.unsent({unsent:true,running:true,onRetry:()=>calls++});assert.equal(bar.children[1].disabled,true);h.unsent({unsent:false,onRetry(){}});assert.equal(h.doc.getElementById('doce-admin-unsent'),undefined);});
+function parts(products){const source=fs.readFileSync(require.resolve('../admin-runtime.js'),'utf8'),grab=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i);assert.ok(i>=0&&j>i,a);return source.slice(i,j);};
+ const code=grab(' const fields=',' const clone=')+grab(' const KIT_FIELDS=',' function rebase(')+';this.part=part;',context={sync:{apiIds:new Map()}};vm.runInNewContext(code,context);
+ return {config:JSON.parse(context.part({products},false)),ops:JSON.parse(context.part({products},true))};}
+test('custo calculado pela ficha ou kit vai com a operação e não cria rascunho de configuração',()=>{
+ const a=parts([{id:1,apiId:'x',name:'Brigadeiro',price:3,cost:1,costSource:'recipe',stock:5},{id:2,apiId:'y',name:'Bolo',price:9,cost:4}]);
+ const b=parts([{id:1,apiId:'x',name:'Brigadeiro',price:3,cost:1.4,costSource:'recipe',stock:5},{id:2,apiId:'y',name:'Bolo',price:9,cost:4}]);
+ assert.equal(JSON.stringify(a.config),JSON.stringify(b.config),'custo da ficha não é configuração');
+ assert.notEqual(JSON.stringify(a.ops),JSON.stringify(b.ops),'custo da ficha segue na operação');
+ assert.equal(JSON.stringify(b.ops.costs),JSON.stringify([['x',1.4,'recipe']]));
+ const manual=parts([{id:1,apiId:'x',name:'Brigadeiro',price:3,cost:1,costSource:'recipe',stock:5},{id:2,apiId:'y',name:'Bolo',price:9,cost:5}]);
+ assert.notEqual(JSON.stringify(a.config),JSON.stringify(manual.config),'custo manual continua configuração');
+});

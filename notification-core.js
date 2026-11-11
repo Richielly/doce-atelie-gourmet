@@ -17,5 +17,15 @@
  function hasAction(role,target){return !!(target&&typeof target==='object'&&Object.hasOwn(pages[role]||{},target.screen));}
  function previews(entries){return [...entries].sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0)||(Number(b.id)||0)-(Number(a.id)||0)).slice(0,5);}
  function nativeId(value){let hash=2166136261;for(const c of value)hash=Math.imul(hash^c.charCodeAt(0),16777619);return (hash>>>0)%2147483646+1;}
- const api={categories,pages,key,route,merge,nativeId,hasAction,previews};if(typeof module!=='undefined')module.exports=api;if(root)root.DoceNotificationCore=api;
+ // Business alerts the owner must not miss (sale, quote, booking) versus system/housekeeping notices.
+ const salonUrgent=/^(Novo agendamento|Agendamento cancelado|Atendimento precisa de remanejamento|Profissional informou uma ausência|Presença confirmada|Cliente chegou)/;
+ function lane(role,n){
+  if(role!=='admin'||!n||n.local||n.title==='Resumo da semana')return 'system';
+  if(n.category==='orders'||n.category==='on_way')return 'order';
+  if(n.category==='quotes')return 'quote';
+  if(n.category==='salon'&&salonUrgent.test(String(n.title||'')))return 'booking';
+  return 'system';
+ }
+ const lanes={order:{label:'Pedido',action:'Ver pedido'},quote:{label:'Orçamento',action:'Ver orçamento'},booking:{label:'Agendamento',action:'Ver agenda'},system:{label:'Sistema',action:'Ver'}};
+ const api={categories,pages,key,route,merge,nativeId,hasAction,previews,lane,lanes};if(typeof module!=='undefined')module.exports=api;if(root)root.DoceNotificationCore=api;
 })(typeof window!=='undefined'?window:null);

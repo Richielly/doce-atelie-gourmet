@@ -4,21 +4,26 @@
 (()=>{
  'use strict';
  if(window.DOCE_MODE!=='admin')return;
- const fields=['products','orders','settings','nextId','pantry','pantryEntries','pantryLots','pantryMovements','recipes','production','allocations','loyalty','quotes','booking','branding','loyaltyAccounts','loyaltyVouchers'];
+ const fields=['products','orders','settings','nextId','pantry','pantryEntries','pantryLots','pantryMovements','recipes','production','kits','kitPlans','kitAssemblies','allocations','loyalty','quotes','booking','branding','loyaltyAccounts','loyaltyVouchers'];
  // Fields the customer depends on in real time, or that record what already happened.
- const OPERATIONAL=['orders','pantry','pantryEntries','pantryLots','pantryMovements','production','allocations','booking','loyaltyAccounts','loyaltyVouchers'];
+ const OPERATIONAL=['orders','pantry','pantryEntries','pantryLots','pantryMovements','production','kitPlans','kitAssemblies','allocations','booking','loyaltyAccounts','loyaltyVouchers'];
  const clone=value=>JSON.parse(JSON.stringify(value)),drafts=DoceTenants.create(localStorage);
  const published={config:'',ops:''};let publishing=Promise.resolve();
  const sync={businessType:'confectionery',productSales:true,store:null,token:'',expires:0,revision:0,dirty:false,running:false,error:'',sequence:0,operations:[],apiIds:new Map(),derivedChanges:false,unsent:false};
  let onlineOrders=[],activity={quotes:[],customers:[]},draftWrite=Promise.resolve();
  try{if(!localStorage.getItem('doce-legacy-snapshot-v1')&&localStorage.getItem('doce-atelier-v1'))localStorage.setItem('doce-legacy-snapshot-v1',localStorage.getItem('doce-atelier-v1'));}catch{/* The original legacy key is never modified by this runtime. */}
  const hex=bytes=>Array.from(new Uint8Array(bytes),n=>n.toString(16).padStart(2,'0')).join('');
- function snapshot(){const data=Object.fromEntries(fields.filter(k=>db[k]!==undefined).map(k=>[k,clone(db[k])]));data.products=data.products.map(p=>({...p,...((p.apiId||sync.apiIds.get(p.id))?{apiId:p.apiId||sync.apiIds.get(p.id)}:{})}));return data;}
+ // Servers before 0.23.0 refuse these fields: a shop without kits sends none and keeps working there.
+ const KIT_FIELDS=['kits','kitPlans','kitAssemblies'],omitted=(src,k)=>KIT_FIELDS.includes(k)&&!(src[k]||[]).length;
+ function snapshot(){const data=Object.fromEntries(fields.filter(k=>db[k]!==undefined&&!omitted(db,k)).map(k=>[k,clone(db[k])]));data.products=data.products.map(p=>({...p,...((p.apiId||sync.apiIds.get(p.id))?{apiId:p.apiId||sync.apiIds.get(p.id)}:{})}));return data;}
+ const apiOf=p=>p.apiId||sync.apiIds.get(p.id);
+ // Cost calculated from the recipe or kit sheet follows the pantry: it travels with the operation, not as a draft.
+ const derived=p=>p.costSource==='recipe'||p.costSource==='kit';
  function part(src,operational){
-  const out={};for(const k of fields)if(src[k]!==undefined&&OPERATIONAL.includes(k)===operational&&k!=='products')out[k]=src[k];
+  const out={};for(const k of fields)if(src[k]!==undefined&&!omitted(src,k)&&OPERATIONAL.includes(k)===operational&&k!=='products')out[k]=src[k];
   const list=src.products||[];
-  if(operational)out.stock=list.filter(p=>p.apiId||sync.apiIds.get(p.id)).map(p=>[p.apiId||sync.apiIds.get(p.id),p.stock]);
-  else out.products=list.map(({stock,stockBase,...p})=>p);
+  if(operational){out.stock=list.filter(apiOf).map(p=>[apiOf(p),p.stock,p.inventoryCost]);out.costs=list.filter(p=>apiOf(p)&&derived(p)).map(p=>[apiOf(p),p.cost,p.costSource]);}
+  else out.products=list.map(({stock,stockBase,inventoryCost,...p})=>{if(derived(p)){delete p.cost;delete p.costSource;}return p;});
   return JSON.stringify(out);
  }
  function rebase(src){published.config=part(src,false);published.ops=part(src,true);}
@@ -27,7 +32,7 @@
  function operationalChanged(){return part(db,true)!==published.ops;}
  function remember(){
   if(!sync.store)return Promise.resolve();
-  const store=clone(sync.store),draft={data:snapshot(),revision:sync.revision,dirty:sync.dirty,sequence:sync.sequence,operations:clone(sync.operations)};
+  const store=clone(sync.store),draft={data:snapshot(),revision:sync.revision,dirty:sync.dirty,unsent:sync.unsent,sequence:sync.sequence,operations:clone(sync.operations)};
   draftWrite=draftWrite.catch(()=>{}).then(()=>DoceAdminDrafts.save(store,draft));
   draftWrite.catch(()=>{sync.error='Não foi possível guardar o rascunho. Exporte uma cópia antes de sair.';banner();});
   return draftWrite;
@@ -37,6 +42,7 @@
  function failSync(error){sync.error=error.message;banner();notify(error.message,'error');}
  function banner(){
   window.DoceAdminSync?.mount({dirty:!!admin&&sync.dirty,running:sync.running,onSend:send,onError:failSync});
+  window.DoceAdminSync?.unsent?.({unsent:!!admin&&sync.unsent,running:sync.running,onRetry:retryUnsent});
   const status=document.getElementById('adminSyncStatus');if(status)status.textContent=syncLabel();
   const button=document.getElementById('adminConfigSend');if(button)button.disabled=sync.running||!sync.dirty;
  }
@@ -49,41 +55,87 @@
   sync.sequence++;
   const operational=operationalChanged();
   sync.dirty=sync.dirty||configChanged();
+  // The device copy is written in the background: the screen is never locked for it.
   const pending=remember();banner();window.DoceNotify?.draft(sync.store,sync.dirty);
-  if(operational&&!sync.unsent)void publishNow([],'Registro enviado. Clientes e outros aparelhos já veem a atualização.').catch(failOperational);
-  return DoceLoading.run(pending);
+  if(operational){
+   if(sync.unsent)notify('Salvo neste aparelho. Há registros ainda não enviados: toque em Reenviar registros para enviá-los.');
+   else void publishNow([],'Registro enviado. Clientes e outros aparelhos já veem a atualização.').catch(failOperational);
+  }
+  return pending;
  };
+ // Kits decide with the current sale balance; a difference not sent yet is kept.
+ window.DoceKitSync={published:id=>{const p=db.products.find(p=>p.id===id);return !!(p&&(p.apiId||sync.apiIds.get(id)));},
+  refreshStock:async()=>{const {products}=await request(prefix()+'/products');for(const p of db.products){const remote=products.find(x=>x.id===(p.apiId||sync.apiIds.get(p.id)));if(!remote)continue;p.stock=Number.isInteger(p.stockBase)?Math.max(0,p.stock+remote.stock-p.stockBase):remote.stock;p.stockBase=remote.stock;}}};
  function failOperational(error){
-  // Kept on this device and in the draft: only Enviar alterações or a new confirmation sends it.
-  sync.unsent=true;sync.dirty=true;remember();banner();window.DoceNotify?.draft(sync.store,true);
-  notify(error.message+' A alteração ficou salva neste aparelho; use Enviar alterações para tentar de novo.','error');
+  // Kept on this device and in the draft: only Reenviar registros (confirmed) or Enviar alterações sends it.
+  sync.unsent=true;remember();banner();
+  notify(error.message+' O registro ficou salvo neste aparelho; toque em Reenviar registros para tentar de novo.','error');
  }
+ async function retryUnsent(){
+  if(!sync.unsent||sync.running)return;
+  if(!await confirmAction('Reenviar registros?',['Estoque, despensa, produção e kits salvos só neste aparelho serão enviados agora.','Clientes e outros aparelhos passam a ver essas alterações.'],'Reenviar registros'))return;
+  try{await publishNow([],'Registros enviados. Clientes e outros aparelhos já veem a atualização.',true);}
+  catch(e){notify(e.message+' Os registros continuam salvos neste aparelho.','error');}
+ }
+ window.retryUnsentRecords=retryUnsent;
  /* Sends operation now: the published server copy plus this device's operational fields and
     the given order/quote operations. Configuration still waiting in the draft is not sent. */
- function publishNow(operations=[],done){
-  const run=async()=>{
-   const remote=await request(prefix()+'/workspace');
-   if(!remote.data)throw Error('Publique as configurações iniciais da loja com Enviar alterações antes de registrar a operação.');
-   const current=(remote.admin_revision??remote.revision)<=sync.revision,payload=clone(remote.data),local=snapshot(),overlay=operationalChanged();
-   for(const k of ['orders','settings','branding','nextId'])if(payload[k]===undefined)payload[k]=clone(local[k]);
-   if(overlay){
-    if(!current)throw Error('Outro aparelho publicou alterações desta loja. Toque em Atualizar do servidor antes de registrar esta movimentação.');
-    for(const k of OPERATIONAL)if(local[k]!==undefined)payload[k]=clone(local[k]);
-    for(const p of payload.products){const mine=local.products.find(x=>x.apiId===p.apiId);if(mine&&Number.isInteger(mine.stockBase)){p.stock=mine.stock;p.stockBase=mine.stockBase;}}
-   }
-   const endLoading=DoceLoading.begin();
-   try{
-    const result=await request(prefix()+'/workspace','PUT',{revision:remote.revision,data:payload,operations});
-    for(const k of OPERATIONAL)if(result.data[k]!==undefined)db[k]=clone(result.data[k]);
-    for(const p of db.products){const stored=result.data.products.find(x=>x.apiId===(p.apiId||sync.apiIds.get(p.id)));if(stored){p.stock=stored.stock;p.stockBase=stored.stockBase;}}
-    published.ops=part(result.data,true);
-    // The draft keeps its configuration; its base moves forward only if nobody else published meanwhile.
-    if(current){sync.revision=result.revision;if(!sync.dirty)published.config=part(result.data,false);}
-    remember();await live().catch(()=>{});render();if(done)notify(done);
-    return result;
-   }finally{endLoading();}
-  };
-  const next=publishing.catch(()=>{}).then(run);publishing=next;return next;
+ function publishNow(operations=[],done,retry=false){
+  const send=()=>sync.lightOps===false?legacyPublish(operations,done,retry):lightPublish(operations,done,retry).catch(e=>{
+   // Servers before 0.26.0 have no light route: fall back to the complete copy once and remember it.
+   if(e.status===404&&e.detail==='Not Found'){sync.lightOps=false;return legacyPublish(operations,done,retry);}throw e;});
+  const next=publishing.catch(()=>{}).then(send);publishing=next;return next;
+ }
+ // Records that failed before go only by Reenviar registros, never along with another confirmation.
+ const withLocal=retry=>operationalChanged()&&(!sync.unsent||retry);
+ /* Light path: only operational fields, the stock difference and calculated costs travel. Photos,
+    catalog and identity stay on the server; the answer carries only what was saved. */
+ async function lightPublish(operations,done,retry){
+  const overlay=withLocal(retry),sequence=sync.sequence,body={revision:sync.revision,data:{},stock:[],costs:[],operations},sent=new Map();
+  if(overlay){
+   for(const k of OPERATIONAL)if(db[k]!==undefined&&!omitted(db,k))body.data[k]=db[k];
+   for(const p of db.products){const id=apiOf(p);if(!id)continue;
+    if(Number.isInteger(p.stockBase)&&Number.isInteger(p.stock)){body.stock.push([id,p.stock,p.stockBase,Number.isFinite(p.inventoryCost)?p.inventoryCost:null]);sent.set(id,p.stock);}
+    if(derived(p)&&Number.isFinite(p.cost)&&p.cost>=0)body.costs.push([id,p.cost,p.costSource]);}
+  }
+  const endLoading=DoceLoading.begin();
+  try{
+   const result=await request(prefix()+'/workspace/operational','PUT',body);sync.lightOps=true;
+   const untouched=sync.sequence===sequence,adopt=untouched&&(overlay||!sync.unsent);
+   if(adopt)for(const k of OPERATIONAL)if(result.data[k]!==undefined)db[k]=result.data[k];
+   // A change saved meanwhile, or kept unsent, keeps its own difference over the new server stock.
+   for(const [id,stock] of result.stock){const p=db.products.find(x=>apiOf(x)===id);if(!p)continue;
+    const base=sent.has(id)?sent.get(id):Number.isInteger(p.stockBase)?p.stockBase:p.stock;p.stock=Math.max(0,stock+(Number.isInteger(p.stock)?p.stock-base:0));p.stockBase=stock;}
+   published.ops=adopt?part(db,true):untouched?published.ops:'';
+   if(result.current)sync.revision=result.revision;
+   if(overlay&&untouched)sync.unsent=false;
+   remember();if(operations.length)await live().catch(()=>{});render();banner();if(done)notify(done);
+   return result;
+  }finally{endLoading();}
+ }
+ async function legacyPublish(operations,done,retry){
+  const remote=await request(prefix()+'/workspace');
+  if(!remote.data)throw Error('Publique as configurações iniciais da loja com Enviar alterações antes de registrar a operação.');
+  const current=(remote.admin_revision??remote.revision)<=sync.revision,payload=clone(remote.data),local=snapshot(),overlay=withLocal(retry);
+  for(const k of ['orders','settings','branding','nextId'])if(payload[k]===undefined)payload[k]=clone(local[k]);
+  if(overlay){
+   if(!current)throw Error('Outro aparelho publicou alterações desta loja. Toque em Atualizar do servidor antes de registrar esta movimentação.');
+   for(const k of OPERATIONAL)if(local[k]!==undefined)payload[k]=clone(local[k]);
+   for(const p of payload.products){const mine=local.products.find(x=>x.apiId===p.apiId);if(!mine)continue;if(Number.isInteger(mine.stockBase)){p.stock=mine.stock;p.stockBase=mine.stockBase;if(Number.isFinite(mine.inventoryCost))p.inventoryCost=mine.inventoryCost;}if(derived(mine)){p.cost=mine.cost;p.costSource=mine.costSource;}}
+  }
+  const endLoading=DoceLoading.begin();
+  try{
+   const result=await request(prefix()+'/workspace','PUT',{revision:remote.revision,data:payload,operations});
+   const adopt=overlay||!sync.unsent;
+   if(adopt)for(const k of OPERATIONAL)if(result.data[k]!==undefined)db[k]=clone(result.data[k]);
+   for(const p of db.products){const stored=result.data.products.find(x=>x.apiId===apiOf(p));if(stored&&adopt){p.stock=stored.stock;p.stockBase=stored.stockBase;}}
+   if(adopt)published.ops=part(result.data,true);
+   // The draft keeps its configuration; its base moves forward only if nobody else published meanwhile.
+   if(current){sync.revision=result.revision;if(!sync.dirty)published.config=part(result.data,false);}
+   if(overlay)sync.unsent=false;
+   remember();await live().catch(()=>{});render();banner();if(done)notify(done);
+   return result;
+  }finally{endLoading();}
  }
  function confirmAction(title,lines,accept){
   return new Promise(resolve=>{
@@ -105,7 +157,7 @@
  async function request(path,method='GET',body,auth=true){
   if(auth&&Date.now()>=sync.expires)await authenticate();
   let response;try{response=await fetch(sync.store.api+path,{method,cache:'no-store',headers:{Accept:'application/json',...(body?{'Content-Type':'application/json'}:{}),...(auth?{Authorization:'Bearer '+sync.token}:{})},...(body?{body:JSON.stringify(body)}:{})});}catch{throw Error('Servidor indisponível. O rascunho foi preservado neste aparelho.');}
-  const data=await response.json();if(!response.ok){if(response.status===401)sync.expires=0;throw Error(typeof data.detail==='string'?data.detail:'Não foi possível concluir a operação.');}return data;
+  const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===401)sync.expires=0;const error=Error(typeof data.detail==='string'?data.detail:'Não foi possível concluir a operação.');error.status=response.status;error.detail=data.detail;throw error;}return data;
  }
  function prefix(){return '/admin/shops/'+encodeURIComponent(sync.store.id);}
  window.adminApi={key:()=>JSON.stringify([sync.store.api,sync.store.id]),name:()=>sync.store.name||db.settings.name,request:(path,method='GET',body)=>DoceLoading.run(()=>request(prefix()+path,method,body))};
@@ -126,7 +178,7 @@
   const sequence=sync.sequence,data=snapshot(),operations=clone(sync.operations);sync.running=true;sync.error='';banner();const endLoading=DoceLoading.begin();
   try{
    const result=await request(prefix()+'/workspace','PUT',{revision:sync.revision,data,operations});sync.revision=result.revision;
-   if(sync.sequence===sequence){apply(result.data);rebase(result.data);sync.dirty=sync.derivedChanges;sync.unsent=false;sync.operations=[];}
+   if(sync.sequence===sequence){apply(result.data);rebase(db);sync.dirty=false;sync.unsent=false;sync.operations=[];}
    else{for(const product of db.products){const stored=result.data.products.find(p=>p.id===product.id);if(stored)product.apiId=stored.apiId;}sync.operations=sync.operations.filter(op=>!operations.some(sent=>sent.id===op.id&&sent.kind===op.kind&&JSON.stringify(sent)===JSON.stringify(op)));}
    remember();await live();render();notify('Alterações enviadas. A loja já está atualizada para os clientes.');
   }catch(e){sync.error=e.message;sync.dirty=true;remember();throw e;}
@@ -135,10 +187,10 @@
  window.sendAdminChanges=send;
  async function reload(){
   if(sync.running)return;
-  if(sync.dirty&&!confirm('Substituir o rascunho deste aparelho pela versão do servidor? Você pode exportar o rascunho antes.'))return;
+  if((sync.dirty||sync.unsent)&&!confirm('Substituir o rascunho deste aparelho, inclusive registros não enviados, pela versão do servidor? Você pode exportar o rascunho antes.'))return;
   const endLoading=DoceLoading.begin();try{
   const remote=await request(prefix()+'/workspace'),catalog=await request(prefix()+'/products');sync.productSales=catalog.modules?.products!==false;
-  apply(remote.data||DoceTenants.blank(catalog.shop,products(catalog.products)),catalog.shop);rebase(db);sync.revision=remote.revision;sync.operations=[];sync.dirty=sync.derivedChanges;sync.unsent=false;sync.error='';sync.sequence++;remember();await Promise.all([live(),plan()]);render();banner();
+  apply(remote.data||DoceTenants.blank(catalog.shop,products(catalog.products)),catalog.shop);rebase(db);sync.revision=remote.revision;sync.operations=[];sync.dirty=false;sync.unsent=false;sync.error='';sync.sequence++;remember();await Promise.all([live(),plan()]);render();banner();
   }finally{endLoading();}
  }
  async function enter(importLocal=false){
@@ -152,7 +204,7 @@
    let pending=await DoceAdminDrafts.load(store)||drafts.load(store);
    if(!pending){try{const old=JSON.parse(localStorage.getItem('doce-pending-workspace:'+store.api+':'+store.id)||'null');if(old)pending={...old,dirty:true,sequence:0,operations:[]};}catch{}}
    rebase(baseline(base,catalog.shop));sync.unsent=false;
-   apply(pending?.dirty?pending.data:base,catalog.shop);sync.revision=pending?.dirty?pending.revision:remote.revision;sync.operations=pending?.dirty?pending.operations||[]:[];sync.dirty=!!pending?.dirty||sync.derivedChanges;sync.sequence=pending?.sequence||0;sync.error='';
+   const kept=!!(pending?.dirty||pending?.unsent);apply(kept?pending.data:base,catalog.shop);sync.revision=kept?pending.revision:remote.revision;sync.operations=kept?pending.operations||[]:[];sync.unsent=!!pending?.unsent;sync.dirty=!!pending?.dirty||(kept&&configChanged());sync.sequence=pending?.sequence||0;sync.error='';
    if(importLocal){
     const file=document.getElementById('panelBackup').files[0];let imported;
     if(file){if(file.size>32*1024*1024)throw Error('Backup excede 32 MB.');imported=JSON.parse(await file.text());}
